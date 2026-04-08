@@ -1,5 +1,6 @@
 import { useState, useRef } from 'react'
 import { motion, AnimatePresence } from 'framer-motion'
+import { imageToBase64 } from '../utils/storage'
 
 const uid = () => `s${Date.now()}${Math.random().toString(36).slice(2, 6)}`
 
@@ -69,28 +70,38 @@ function StoriesTab({ profile, onUpdate }) {
 function PhotosTab({ profile, onUpdate }) {
   const [adding, setAdding] = useState(false)
   const [preview, setPreview] = useState(null)
+  const [pickedFile, setPickedFile] = useState(null)
   const [form, setForm] = useState({ caption: '', date: '' })
   const fileRef = useRef()
 
   const handleFile = (e) => {
     const f = e.target.files[0]
-    if (f) setPreview(URL.createObjectURL(f))
+    if (!f) return
+    setPickedFile(f)
+    setPreview(URL.createObjectURL(f))
   }
 
   const handleDrop = (e) => {
     e.preventDefault()
     e.stopPropagation()
     const f = e.dataTransfer.files[0]
-    if (f && f.type.startsWith('image/')) setPreview(URL.createObjectURL(f))
+    if (!f || !f.type.startsWith('image/')) return
+    setPickedFile(f)
+    setPreview(URL.createObjectURL(f))
   }
 
-  const save = () => {
+  const save = async () => {
     if (!preview) return
+    let src = preview
+    if (pickedFile) {
+      src = await imageToBase64(pickedFile)
+    }
     onUpdate({
       ...profile,
-      photos: [{ id: uid(), src: preview, ...form }, ...(profile.photos || [])],
+      photos: [{ id: uid(), src, ...form }, ...(profile.photos || [])],
     })
     setPreview(null)
+    setPickedFile(null)
     setForm({ caption: '', date: '' })
     setAdding(false)
   }
