@@ -1,0 +1,80 @@
+// Sample data — will be replaced by real API data
+export const sampleMemories = [
+  {
+    id: 1,
+    type: 'photo',
+    src: 'https://images.unsplash.com/photo-1506905925346-21bda4d32df4?w=400',
+    caption: 'Summit of Mount Rainier',
+    date: '2019-08-14',
+    location: { country: 'USA', state: 'Washington', city: 'Mount Rainier National Park', lat: 46.8523, lng: -121.7603 },
+    note: 'The hardest and most rewarding climb of my life. Worth every step.',
+    source: 'instagram',
+  },
+  {
+    id: 2,
+    type: 'photo',
+    src: 'https://images.unsplash.com/photo-1499856871958-5b9627545d1a?w=400',
+    caption: 'Paris, finally.',
+    date: '2018-06-03',
+    location: { country: 'France', state: null, city: 'Paris', lat: 48.8566, lng: 2.3522 },
+    note: 'Croissants every morning. No regrets.',
+    source: 'facebook',
+  },
+  {
+    id: 3,
+    type: 'post',
+    text: 'Today I turned 30. Spent it at the beach with people I love. Life is good.',
+    date: '2021-03-20',
+    location: { country: 'USA', state: 'California', city: 'Malibu', lat: 34.0259, lng: -118.7798 },
+    note: null,
+    source: 'facebook',
+  },
+  {
+    id: 4,
+    type: 'photo',
+    src: 'https://images.unsplash.com/photo-1493246507139-91e8fad9978e?w=400',
+    caption: 'Colorado road trip',
+    date: '2020-09-10',
+    location: { country: 'USA', state: 'Colorado', city: 'Rocky Mountain National Park', lat: 40.3428, lng: -105.6836 },
+    note: 'Three weeks, two friends, one van.',
+    source: 'instagram',
+  },
+  {
+    id: 5,
+    type: 'photo',
+    src: 'https://images.unsplash.com/photo-1570077188670-e3a8d69ac5ff?w=400',
+    caption: 'Santorini sunsets',
+    date: '2022-07-18',
+    location: { country: 'Greece', state: null, city: 'Santorini', lat: 36.3932, lng: 25.4615 },
+    note: 'The most beautiful thing I have ever seen.',
+    source: 'instagram',
+  },
+  {
+    id: 6,
+    type: 'journal',
+    text: "Graduated today. I still can't believe it. Four years of late nights, bad coffee, and pushing through. Whatever comes next — I'm ready.",
+    date: '2015-05-15',
+    location: { country: 'USA', state: 'Texas', city: 'Austin', lat: 30.2672, lng: -97.7431 },
+    note: null,
+    source: 'manual',
+    milestone: 'Graduation',
+  },
+]
+
+export const sampleTravelStats = [
+  { country: 'USA', percentage: 78, states: ['Texas', 'California', 'Washington', 'Colorado', 'New York', 'Florida'] },
+  { country: 'France', percentage: 4 },
+  { country: 'Greece', percentage: 3 },
+  { country: 'Mexico', percentage: 5 },
+  { country: 'Canada', percentage: 6 },
+  { country: 'Other', percentage: 4 },
+]
+
+export const usStateStats = [
+  { state: 'Texas', percentage: 45 },
+  { state: 'California', percentage: 18 },
+  { state: 'Washington', percentage: 12 },
+  { state: 'Colorado', percentage: 10 },
+  { state: 'New York', percentage: 8 },
+  { state: 'Florida', percentage: 7 },
+]

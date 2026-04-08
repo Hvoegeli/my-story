@@ -1,0 +1,28 @@
+@import url('https://fonts.googleapis.com/css2?family=Playfair+Display:ital,wght@0,400;0,700;1,400&family=Special+Elite&family=Crimson+Text:ital@0;1&display=swap');
+@import "tailwindcss";
+
+:root {
+  --paper: #f5f0e8;
+  --paper-dark: #e8dfc8;
+  --ink: #2c1810;
+  --ink-faded: #6b4c3b;
+  --accent: #8b3a2a;
+  --gold: #c9973a;
+  --shadow: rgba(44, 24, 16, 0.15);
+}
+
+* {
+  box-sizing: border-box;
+}
+
+body {
+  margin: 0;
+  background-color: #1a0f0a;
+  font-family: 'Crimson Text', Georgia, serif;
+  color: var(--ink);
+  min-height: 100vh;
+}
+
+::-webkit-scrollbar { width: 6px; }
+::-webkit-scrollbar-track { background: var(--paper-dark); }
+::-webkit-scrollbar-thumb { background: var(--ink-faded); border-radius: 3px; }

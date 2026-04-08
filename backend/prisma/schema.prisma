@@ -1,0 +1,68 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+model User {
+  id        String   @id @default(cuid())
+  name      String
+  email     String   @unique
+  password  String
+  isPaid    Boolean  @default(false)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  memories      Memory[]
+  scrapbooks    Scrapbook[]
+  collaborations ScrapbookCollaborator[]
+}
+
+model Scrapbook {
+  id        String   @id @default(cuid())
+  title     String   @default("My Story")
+  ownerId   String
+  shareSlug String?  @unique
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  owner          User                   @relation(fields: [ownerId], references: [id])
+  collaborators  ScrapbookCollaborator[]
+}
+
+model ScrapbookCollaborator {
+  id          String    @id @default(cuid())
+  scrapbookId String
+  userId      String
+  role        String    @default("editor") // editor | viewer
+
+  scrapbook   Scrapbook @relation(fields: [scrapbookId], references: [id])
+  user        User      @relation(fields: [userId], references: [id])
+
+  @@unique([scrapbookId, userId])
+}
+
+model Memory {
+  id              String    @id @default(cuid())
+  userId          String
+  type            String    // photo | post | journal
+  src             String?   // image URL (Cloudinary)
+  caption         String?
+  text            String?
+  date            DateTime?
+  locationCity    String?
+  locationState   String?
+  locationCountry String?
+  locationLat     Float?
+  locationLng     Float?
+  note            String?   // user's personal context note
+  source          String    @default("manual") // manual | instagram | facebook
+  milestone       String?   // Graduation | Travel | Career | etc.
+  createdAt       DateTime  @default(now())
+  updatedAt       DateTime  @updatedAt
+
+  user  User @relation(fields: [userId], references: [id])
+}
