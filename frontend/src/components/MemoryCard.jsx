@@ -1,4 +1,14 @@
+import { useState } from 'react'
+
+const TRUNCATE_LEN = 180
+
 export default function MemoryCard({ memory, onEdit }) {
+  const [expanded, setExpanded] = useState(false)
+
+  const bodyText = memory.caption || memory.text || ''
+  const isTruncatable = bodyText.length > TRUNCATE_LEN
+  const displayText = (!expanded && isTruncatable) ? bodyText.slice(0, TRUNCATE_LEN) + '…' : bodyText
+
   return (
     <div style={{
       background: '#f5f0e8',
@@ -38,15 +48,29 @@ export default function MemoryCard({ memory, onEdit }) {
         />
       )}
 
-      {/* Caption / text */}
-      {(memory.caption || memory.text) && (
-        <p style={{
-          fontFamily: "'Playfair Display', serif",
-          fontStyle: memory.type !== 'photo' ? 'italic' : 'normal',
-          color: '#2c1810', fontSize: '0.92rem', marginBottom: '6px', lineHeight: 1.5,
-        }}>
-          {memory.caption || memory.text}
-        </p>
+      {/* Caption / text with expand */}
+      {bodyText && (
+        <div style={{ marginBottom: '6px' }}>
+          <p style={{
+            fontFamily: "'Playfair Display', serif",
+            fontStyle: memory.type !== 'photo' ? 'italic' : 'normal',
+            color: '#2c1810', fontSize: '0.92rem', lineHeight: 1.5, margin: 0,
+          }}>
+            {displayText}
+          </p>
+          {isTruncatable && (
+            <button
+              onClick={() => setExpanded(e => !e)}
+              style={{
+                background: 'none', border: 'none', color: '#8b3a2a',
+                fontFamily: "'Crimson Text', serif", fontSize: '0.8rem',
+                cursor: 'pointer', padding: '2px 0', marginTop: '2px',
+              }}
+            >
+              {expanded ? 'Show less ▲' : 'Read more ▼'}
+            </button>
+          )}
+        </div>
       )}
 
       {/* Date + location */}

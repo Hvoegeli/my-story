@@ -1,6 +1,7 @@
 import { useState, useMemo, useEffect } from 'react'
 import { motion, AnimatePresence } from 'framer-motion'
 import PersonProfilePanel from '../components/PersonProfilePanel'
+import ParchmentOverlay from '../components/ParchmentOverlay'
 
 // ─── Layout constants ─────────────────────────────────────────────────────────
 const NW = 130   // node width
@@ -37,16 +38,42 @@ function calcGens(rels) {
   return gens
 }
 
-// Sort one generation so spouses are adjacent and nodes sit near their relatives
+// Sort one generation so spouses stay adjacent and nodes anchor near their relatives.
+// Gen -1 special case: user's father goes RIGHT of center, mother LEFT of center
+// so father's side branches right, mother's side branches left.
 function sortRow(ids, g, rels, positions) {
   if (ids.length <= 1) return ids
 
   let sorted
   if (g === 0) {
-    // User first, then their current spouses immediately adjacent
     const userSpouses = (rels['user']?.spouses || []).filter(s => ids.includes(s))
     const rest = ids.filter(i => i !== 'user' && !userSpouses.includes(i))
     sorted = ['user', ...userSpouses, ...rest]
+  } else if (g === -1) {
+    // Parents of user: father right, mother left — keeps lines clean
+    const userParents = (rels['user']?.parents || []).filter(id => ids.includes(id))
+    const others = ids.filter(i => !userParents.includes(i))
+    const father = userParents.find(id => {
+      const r = rels[id] || {}
+      // Identify father by rel type stored on person or by order added
+      return !r._isMother
+    })
+    const mother = userParents.find(id => id !== father)
+    const ordered = []
+    if (mother) ordered.push(mother)
+    others.filter(o => {
+      // mother's ex-spouses go left
+      const r = rels[o] || {}
+      return r.spouses?.includes(mother) || r.exSpouses?.includes(mother)
+    }).forEach(o => ordered.unshift(o))
+    if (father) ordered.push(father)
+    others.filter(o => {
+      const r = rels[o] || {}
+      return r.spouses?.includes(father) || r.exSpouses?.includes(father)
+    }).forEach(o => ordered.push(o))
+    // remaining
+    others.filter(o => !ordered.includes(o)).forEach(o => ordered.push(o))
+    sorted = ordered.length === ids.length ? ordered : [...ids]
   } else {
     sorted = [...ids].sort((a, b) => {
       const anchor = (id) => {
@@ -59,7 +86,7 @@ function sortRow(ids, g, rels, positions) {
     })
   }
 
-  // Pull each person's current spouses to be immediately adjacent
+  // Pull current spouses immediately adjacent
   const result = [...sorted]
   for (let i = 0; i < result.length; i++) {
     const spouses = (rels[result[i]]?.spouses || []).filter(s => result.includes(s))
@@ -219,7 +246,7 @@ function Lines({ rels, positions }) {
       lines.push(
         <path key={`ch-${id}-${cid}`}
           d={`M ${from.cx} ${from.cy + NH / 2} C ${from.cx} ${my} ${to.cx} ${my} ${to.cx} ${to.cy - NH / 2}`}
-          stroke="#c9973a" strokeWidth="1.2" fill="none" opacity="0.3" strokeDasharray="5 4"
+          stroke="#c9973a" strokeWidth="1.5" fill="none" opacity="0.5"
         />
       )
     }
@@ -276,7 +303,6 @@ function Lines({ rels, positions }) {
 
 function NodeCard({ id, person, pos, isUser, onEdit, onAdd, onProfile }) {
   const [hover, setHover] = useState(false)
-  const isFilled = isUser || !!person.name
 
   return (
     <foreignObject x={pos.x} y={pos.y} width={NW} height={NH + 30} overflow="visible">
@@ -286,8 +312,8 @@ function NodeCard({ id, person, pos, isUser, onEdit, onAdd, onProfile }) {
         style={{
           width: NW,
           height: NH,
-          background: isFilled ? (isUser ? '#5a1e12' : '#2c1810') : 'rgba(20,10,5,0.5)',
-          border: `1.5px solid ${isFilled ? (isUser ? '#c9973a' : '#6b4c3b') : '#3d2010'}`,
+          background: isUser ? '#5a1e12' : '#2c1810',
+          border: `1.5px solid ${isUser ? '#c9973a' : '#6b4c3b'}`,
           borderRadius: '3px',
           cursor: 'pointer',
           position: 'relative',
@@ -298,56 +324,50 @@ function NodeCard({ id, person, pos, isUser, onEdit, onAdd, onProfile }) {
           justifyContent: 'center',
           padding: '8px 10px',
         }}
-        onClick={() => isFilled ? onEdit(id, person) : onAdd(id, 'self')}
+        onClick={() => onEdit(id, person)}
       >
-        {isFilled ? (
-          <>
-            <div style={{ fontFamily: "'Special Elite', cursive", color: isUser ? '#f5f0e8' : '#c9973a', fontSize: '0.78rem', letterSpacing: '0.04em', lineHeight: 1.2, marginBottom: '2px', overflow: 'hidden', whiteSpace: 'nowrap', textOverflow: 'ellipsis' }}>
-              {person.name || 'You'}
-            </div>
-            {(person.birthYear || person.deathYear) && (
-              <div style={{ fontFamily: "'Crimson Text', serif", color: '#9c7a5a', fontSize: '0.68rem', lineHeight: 1.2 }}>
-                {person.birthYear || '?'}{person.deathYear ? ` — ${person.deathYear}` : ''}
-              </div>
-            )}
-            {person.birthPlace && (
-              <div style={{ fontFamily: "'Crimson Text', serif", color: '#6b4c3b', fontSize: '0.63rem', overflow: 'hidden', whiteSpace: 'nowrap', textOverflow: 'ellipsis' }}>
-                {person.birthPlace}
-              </div>
-            )}
-            {/* Stories / profile button */}
-            <button
-              onClick={e => { e.stopPropagation(); onProfile(id) }}
-              style={{
-                marginTop: '5px', padding: '2px 7px',
-                background: 'transparent', border: '1px solid #4a2c1a',
-                color: '#c9973a', fontFamily: "'Crimson Text', serif",
-                fontSize: '0.6rem', cursor: 'pointer', borderRadius: '2px',
-                letterSpacing: '0.04em', alignSelf: 'flex-start',
-              }}
-            >
-              📖 Stories & Photos
-            </button>
-          </>
-        ) : (
-          <div style={{ textAlign: 'center', color: '#4a2c1a' }}>
-            <div style={{ fontSize: '1.4rem', lineHeight: 1 }}>+</div>
-            <div style={{ fontFamily: "'Crimson Text', serif", fontStyle: 'italic', color: '#4a2c1a', fontSize: '0.65rem', marginTop: '2px' }}>Add person</div>
+        <div style={{ fontFamily: "'Special Elite', cursive", color: isUser ? '#f5f0e8' : '#c9973a', fontSize: '0.78rem', letterSpacing: '0.04em', lineHeight: 1.2, marginBottom: '2px', overflow: 'hidden', whiteSpace: 'nowrap', textOverflow: 'ellipsis' }}>
+          {person.name || (isUser ? 'You' : '—')}
+        </div>
+        {(person.birthYear || person.deathYear) && (
+          <div style={{ fontFamily: "'Crimson Text', serif", color: '#9c7a5a', fontSize: '0.68rem', lineHeight: 1.2 }}>
+            {person.birthYear || '?'}{person.deathYear ? ` — ${person.deathYear}` : ''}
           </div>
         )}
+        {person.birthPlace && (
+          <div style={{ fontFamily: "'Crimson Text', serif", color: '#6b4c3b', fontSize: '0.63rem', overflow: 'hidden', whiteSpace: 'nowrap', textOverflow: 'ellipsis' }}>
+            {person.birthPlace}
+          </div>
+        )}
+        {person.isAdopted && (
+          <div style={{ fontFamily: "'Crimson Text', serif", color: '#9c7a5a', fontSize: '0.6rem', fontStyle: 'italic' }}>adopted</div>
+        )}
+        {/* Stories / profile button */}
+        <button
+          onClick={e => { e.stopPropagation(); onProfile(id) }}
+          style={{
+            marginTop: '5px', padding: '2px 7px',
+            background: 'transparent', border: '1px solid #4a2c1a',
+            color: '#c9973a', fontFamily: "'Crimson Text', serif",
+            fontSize: '0.6rem', cursor: 'pointer', borderRadius: '2px',
+            letterSpacing: '0.04em', alignSelf: 'flex-start',
+          }}
+        >
+          📖 Stories & Photos
+        </button>
 
-        {/* Add relative button (shown on hover for filled nodes) */}
-        {isFilled && hover && (
+        {/* Gold + badge — add relative */}
+        {hover && (
           <button
             onClick={e => { e.stopPropagation(); onAdd(id) }}
             style={{
               position: 'absolute', top: -10, right: -10,
-              width: 22, height: 22, borderRadius: '50%',
-              background: '#c9973a', border: 'none', color: '#1a0f0a',
-              fontSize: '1rem', lineHeight: '20px', textAlign: 'center',
-              cursor: 'pointer', fontWeight: 'bold', display: 'flex',
-              alignItems: 'center', justifyContent: 'center',
-              boxShadow: '0 2px 8px rgba(0,0,0,0.5)',
+              width: 24, height: 24, borderRadius: '50%',
+              background: '#c9973a', border: '2px solid #f5f0e8',
+              color: '#1a0f0a', fontSize: '1.1rem', lineHeight: '20px',
+              textAlign: 'center', cursor: 'pointer', fontWeight: 'bold',
+              display: 'flex', alignItems: 'center', justifyContent: 'center',
+              boxShadow: '0 2px 8px rgba(0,0,0,0.6)',
             }}
           >
             +
@@ -424,23 +444,13 @@ function PersonForm({ personId, person, isNew, relType, onSave, onDelete, onDivo
   const relLabel = relType ? REL_OPTIONS.find(r => r.type === relType)?.label : null
 
   return (
-    <AnimatePresence>
-      <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}
-        onClick={onClose}
-        style={{ position: 'fixed', inset: 0, zIndex: 300, background: 'rgba(10,5,3,0.8)', display: 'flex', alignItems: 'center', justifyContent: 'center', padding: '24px' }}>
-        <motion.div initial={{ opacity: 0, y: 28, scale: 0.96 }} animate={{ opacity: 1, y: 0, scale: 1 }}
-          onClick={e => e.stopPropagation()}
-          style={{ background: '#f5f0e8', width: '100%', maxWidth: '380px', border: '1px solid #c9b89a', boxShadow: '0 20px 60px rgba(0,0,0,0.7)' }}>
-          <div style={{ background: '#2c1810', padding: '16px 20px', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-            <div>
-              <span style={{ fontFamily: "'Special Elite', cursive", color: '#f5f0e8', fontSize: '1.05rem' }}>
-                {isNew ? `Add ${relLabel || 'Person'}` : 'Edit Person'}
-              </span>
-              {relLabel && isNew && <p style={{ fontFamily: "'Crimson Text', serif", color: '#9c7a5a', fontSize: '0.78rem', margin: '2px 0 0' }}>{relLabel}</p>}
-            </div>
-            <button onClick={onClose} style={{ background: 'none', border: 'none', color: '#9c7a5a', fontSize: '1.3rem', cursor: 'pointer' }}>×</button>
-          </div>
-          <div style={{ padding: '20px' }}>
+    <ParchmentOverlay
+      title={isNew ? `Add ${relLabel || 'Person'}` : 'Edit Person'}
+      onClose={onClose}
+      maxWidth={400}
+      zIndex={300}
+    >
+          <div>
             {[
               ['name', 'Full Name', 'text', 'e.g. Margaret Anne Smith'],
               ['birthYear', 'Birth Year', 'number', 'e.g. 1942'],
@@ -506,9 +516,7 @@ function PersonForm({ personId, person, isNew, relType, onSave, onDelete, onDivo
               </button>
             </div>
           </div>
-        </motion.div>
-      </motion.div>
-    </AnimatePresence>
+    </ParchmentOverlay>
   )
 }
 

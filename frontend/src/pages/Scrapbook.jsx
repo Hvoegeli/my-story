@@ -246,13 +246,27 @@ export default function Scrapbook() {
           </HTMLFlipBook>
         </div>
 
-        {/* Navigation controls */}
-        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '24px', marginTop: '28px' }}>
-          <button onClick={() => bookRef.current?.pageFlip()?.flipPrev()} style={navBtnStyle}>← Previous</button>
-          <span style={{ fontFamily: "'Crimson Text', serif", color: '#9c7a5a', fontSize: '0.9rem' }}>
+        {/* Navigation controls — fleur-de-lis */}
+        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '28px', marginTop: '28px' }}>
+          <button
+            onClick={() => bookRef.current?.pageFlip()?.flipPrev()}
+            style={fleurBtnStyle}
+            title="Previous page"
+          >
+            <span style={{ fontSize: '1.6rem', lineHeight: 1, display: 'block' }}>⚜</span>
+            <span style={{ fontSize: '0.65rem', letterSpacing: '0.06em', display: 'block', marginTop: '2px' }}>PREV</span>
+          </button>
+          <span style={{ fontFamily: "'Crimson Text', serif", color: '#9c7a5a', fontSize: '0.9rem', minWidth: '100px', textAlign: 'center' }}>
             Page {currentPage + 1} of {totalPages}
           </span>
-          <button onClick={() => bookRef.current?.pageFlip()?.flipNext()} style={navBtnStyle}>Next →</button>
+          <button
+            onClick={() => bookRef.current?.pageFlip()?.flipNext()}
+            style={fleurBtnStyle}
+            title="Next page"
+          >
+            <span style={{ fontSize: '1.6rem', lineHeight: 1, display: 'block' }}>⚜</span>
+            <span style={{ fontSize: '0.65rem', letterSpacing: '0.06em', display: 'block', marginTop: '2px' }}>NEXT</span>
+          </button>
         </div>
 
         {/* Import + Add buttons */}
@@ -266,10 +280,11 @@ export default function Scrapbook() {
   )
 }
 
-const navBtnStyle = {
-  background: 'transparent', border: '1px solid #4a2c1a', color: '#c9b89a',
-  padding: '8px 20px', fontFamily: "'Crimson Text', serif", fontSize: '1rem',
-  cursor: 'pointer', borderRadius: '2px', letterSpacing: '0.03em',
+const fleurBtnStyle = {
+  background: 'transparent', border: '1px solid #4a2c1a', color: '#c9973a',
+  padding: '8px 18px', fontFamily: "'Special Elite', cursive",
+  cursor: 'pointer', borderRadius: '2px', textAlign: 'center',
+  transition: 'border-color 0.2s, color 0.2s',
 }
 
 const actionBtnStyle = (bg) => ({

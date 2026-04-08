@@ -53,12 +53,16 @@ function StoriesTab({ profile, onUpdate }) {
         <p style={emptyStyle}>No stories yet. Add the first one above.</p>
       )}
 
-      {(profile.stories || []).map(s => (
+      {[...(profile.stories || [])].sort((a, b) => {
+        if (!a.date) return 1
+        if (!b.date) return -1
+        return new Date(a.date) - new Date(b.date)
+      }).map(s => (
         <div key={s.id} style={entryCardStyle}>
+          {s.date && <span style={{ ...metaStyle, display: 'block', marginBottom: '4px' }}>{s.date}</span>}
           <p style={{ fontFamily: "'Playfair Display', serif", fontStyle: 'italic', color: '#2c1810', fontSize: '0.95rem', lineHeight: 1.6, margin: '0 0 8px', whiteSpace: 'pre-wrap' }}>
             "{s.text}"
           </p>
-          {s.date && <span style={metaStyle}>{s.date}</span>}
           <button onClick={() => remove(s.id)} style={removeBtnStyle}>Remove</button>
         </div>
       ))}
