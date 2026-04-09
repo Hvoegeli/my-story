@@ -4,8 +4,11 @@ generator client {
 
 datasource db {
   provider = "postgresql"
-  url      = env("DATABASE_URL")
 }
+
+// ─────────────────────────────────────────────────────────────────────────────
+// USER
+// ─────────────────────────────────────────────────────────────────────────────
 
 model User {
   id        String   @id @default(cuid())
@@ -19,7 +22,161 @@ model User {
   memories      Memory[]
   scrapbooks    Scrapbook[]
   collaborations ScrapbookCollaborator[]
+  people        Person[]           // all Person records owned by this user
 }
+
+// ─────────────────────────────────────────────────────────────────────────────
+// PERSON
+// One row per individual in the family tree.
+// generationIndex is relative to the owning user:
+//   0  = the user themselves
+//  -1  = parents
+//  -2  = grandparents
+//  +1  = children
+//  +2  = grandchildren … etc.
+// ─────────────────────────────────────────────────────────────────────────────
+
+model Person {
+  id              String   @id @default(cuid())
+  userId          String                      // owner (the My Story account holder)
+
+  // Identity
+  name            String
+  birthDate       String?                     // stored as MMDDYYYY or MMYYYY; flexible string
+  birthCity       String?
+  birthState      String?
+  birthCountry    String?
+  deathYear       String?
+
+  // Tree position
+  generationIndex Int      @default(0)        // integer relative to user (0 = self)
+  isUser          Boolean  @default(false)    // true for exactly one Person per User
+  isAdopted       Boolean  @default(false)
+
+  // Freeform note
+  note            String?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  user  User @relation(fields: [userId], references: [id])
+
+  // Relationships where this person is the subject
+  relationshipsFrom Relationship[] @relation("RelFrom")
+  // Relationships where this person is the target
+  relationshipsTo   Relationship[] @relation("RelTo")
+
+  // Profile content (stories, photos, places) owned by this person
+  stories PersonStory[]
+  photos  PersonPhoto[]
+  places  PersonPlace[]
+
+  @@index([userId])
+  @@index([userId, generationIndex])
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// RELATIONSHIP
+// Graph edges between Person nodes.
+//
+// relationshipType values:
+//   spouse    — currently married / partnered
+//   divorced  — formerly married (ex-spouse)
+//   parent    — fromPerson IS A PARENT OF toPerson
+//   sibling   — fromPerson IS A SIBLING OF toPerson
+//
+// Bidirectionality rules (enforced at application layer):
+//   spouse   → mirror row created: (B→A, spouse)
+//   divorced → mirror row created: (B→A, divorced)
+//   parent   → mirror row created: (B→A, child) — see note below
+//   sibling  → mirror row created: (B→A, sibling)
+//
+// "child" is the mirror of "parent"; both directions are stored so queries
+// in either direction are a simple index scan with no JOIN needed.
+//
+// Duplicate prevention: @@unique([fromPersonId, toPersonId, relationshipType])
+// ensures the same typed edge cannot be inserted twice.
+// ─────────────────────────────────────────────────────────────────────────────
+
+model Relationship {
+  id               String @id @default(cuid())
+
+  fromPersonId     String
+  toPersonId       String
+  relationshipType RelationshipType
+
+  createdAt DateTime @default(now())
+
+  fromPerson Person @relation("RelFrom", fields: [fromPersonId], references: [id], onDelete: Cascade)
+  toPerson   Person @relation("RelTo",   fields: [toPersonId],   references: [id], onDelete: Cascade)
+
+  // Prevent duplicate typed edges
+  @@unique([fromPersonId, toPersonId, relationshipType])
+
+  // Fast lookups in both directions
+  @@index([fromPersonId, relationshipType])
+  @@index([toPersonId,   relationshipType])
+}
+
+enum RelationshipType {
+  spouse
+  divorced
+  parent    // fromPerson is parent of toPerson
+  child     // fromPerson is child of toPerson  (mirror of parent)
+  sibling
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// PERSON PROFILE CONTENT
+// Stories, photos, and places attached to a specific Person.
+// ─────────────────────────────────────────────────────────────────────────────
+
+model PersonStory {
+  id        String   @id @default(cuid())
+  personId  String
+  text      String
+  date      String?  // MMDDYYYY or MMYYYY or YYYY — for chronological sort
+  createdAt DateTime @default(now())
+
+  person Person @relation(fields: [personId], references: [id], onDelete: Cascade)
+
+  @@index([personId])
+  @@index([personId, date])
+}
+
+model PersonPhoto {
+  id        String   @id @default(cuid())
+  personId  String
+  src       String   // base64 data URI or Cloudinary URL
+  caption   String?
+  date      String?
+  createdAt DateTime @default(now())
+
+  person Person @relation(fields: [personId], references: [id], onDelete: Cascade)
+
+  @@index([personId])
+}
+
+model PersonPlace {
+  id        String   @id @default(cuid())
+  personId  String
+  name      String
+  city      String?
+  state     String?
+  country   String?
+  yearFrom  String?
+  yearTo    String?
+  note      String?
+  createdAt DateTime @default(now())
+
+  person Person @relation(fields: [personId], references: [id], onDelete: Cascade)
+
+  @@index([personId])
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// SCRAPBOOK & MEMORIES (unchanged from original)
+// ─────────────────────────────────────────────────────────────────────────────
 
 model Scrapbook {
   id        String   @id @default(cuid())
@@ -29,8 +186,8 @@ model Scrapbook {
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 
-  owner          User                   @relation(fields: [ownerId], references: [id])
-  collaborators  ScrapbookCollaborator[]
+  owner         User                   @relation(fields: [ownerId], references: [id])
+  collaborators ScrapbookCollaborator[]
 }
 
 model ScrapbookCollaborator {
@@ -39,8 +196,8 @@ model ScrapbookCollaborator {
   userId      String
   role        String    @default("editor") // editor | viewer
 
-  scrapbook   Scrapbook @relation(fields: [scrapbookId], references: [id])
-  user        User      @relation(fields: [userId], references: [id])
+  scrapbook Scrapbook @relation(fields: [scrapbookId], references: [id])
+  user      User      @relation(fields: [userId], references: [id])
 
   @@unique([scrapbookId, userId])
 }
@@ -49,7 +206,7 @@ model Memory {
   id              String    @id @default(cuid())
   userId          String
   type            String    // photo | post | journal
-  src             String?   // image URL (Cloudinary)
+  src             String?   // base64 data URI or Cloudinary URL
   caption         String?
   text            String?
   date            DateTime?
@@ -58,11 +215,14 @@ model Memory {
   locationCountry String?
   locationLat     Float?
   locationLng     Float?
-  note            String?   // user's personal context note
+  note            String?
   source          String    @default("manual") // manual | instagram | facebook
-  milestone       String?   // Graduation | Travel | Career | etc.
+  milestone       String?   // Graduation | Travel | Career | Family | etc.
   createdAt       DateTime  @default(now())
   updatedAt       DateTime  @updatedAt
 
-  user  User @relation(fields: [userId], references: [id])
+  user User @relation(fields: [userId], references: [id])
+
+  @@index([userId])
+  @@index([userId, date])
 }
