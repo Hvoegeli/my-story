@@ -2,72 +2,65 @@ import { useMemo } from 'react'
 import { PieChart, Pie, Cell, BarChart, Bar, XAxis, YAxis, Tooltip, ResponsiveContainer } from 'recharts'
 import { motion } from 'framer-motion'
 import { loadBirthInfo, loadMemoriesFromStorage } from '../utils/storage'
+import { normalizeCountry, parseDateString } from '../utils/dates'
 
 const COLORS = ['#c9973a', '#8b3a2a', '#4a7c9b', '#4a7c5a', '#8b3a7a', '#6b7c3a', '#4a4a7a', '#9b5a2a', '#3a7a8b']
 
 function computeStats() {
-  const birthInfo = loadBirthInfo()
+  const birthInfo   = loadBirthInfo()
   const { memories } = loadMemoriesFromStorage()
-  const allMemories = memories || []
+  const allMemories  = memories || []
 
-  // Year span
-  const birthYear = birthInfo?.birthDate ? new Date(birthInfo.birthDate).getFullYear() : null
+  // Year span — use parseDateString for MMDDYYYY/MMYYYY support
+  const birthYear   = birthInfo?.birthDate ? new Date(parseDateString(birthInfo.birthDate) ?? birthInfo.birthDate).getFullYear() : null
   const currentYear = new Date().getFullYear()
-  const allYears = allMemories.map(m => m.date ? new Date(m.date).getFullYear() : null).filter(Boolean)
+  const allYears    = allMemories.map(m => { const ts = parseDateString(m.date); return ts ? new Date(ts).getFullYear() : null }).filter(Boolean)
   const earliestYear = birthYear ?? (allYears.length ? Math.min(...allYears) : currentYear - 1)
-  const totalYears = Math.max(1, currentYear - earliestYear)
+  const totalYears   = Math.max(1, currentYear - earliestYear)
 
-  // Country attribution — count memories per country
+  // Country counts — normalize names so USA/United States merge
   const countryCounts = {}
+  const birthCountry  = birthInfo?.country ? normalizeCountry(birthInfo.country) : null
 
-  // Seed with birth country if available
-  if (birthInfo?.country) {
-    countryCounts[birthInfo.country] = 0
-  }
+  // Seed birth country at 1 so it always appears
+  if (birthCountry) countryCounts[birthCountry] = 1
 
   for (const m of allMemories) {
-    const c = m.location?.country
-    if (c) countryCounts[c] = (countryCounts[c] || 0) + 1
+    if (!m.location?.country) continue
+    const c = normalizeCountry(m.location.country)
+    countryCounts[c] = (countryCounts[c] || 0) + 1
   }
 
-  // If zero memories, give birth country 100%
-  const countryTotal = Object.values(countryCounts).reduce((s, v) => s + v, 0)
-  if (countryTotal === 0 && birthInfo?.country) {
-    countryCounts[birthInfo.country] = 1
-  }
-
-  const finalCountryTotal = Object.values(countryCounts).reduce((s, v) => s + v, 0) || 1
+  const countryTotal = Object.values(countryCounts).reduce((s, v) => s + v, 0) || 1
   const countryStats = Object.entries(countryCounts)
-    .filter(([, count]) => count > 0)
-    .map(([country, count]) => ({ country, percentage: Math.round((count / finalCountryTotal) * 100) }))
+    .map(([country, count]) => ({ country, percentage: Math.round((count / countryTotal) * 100) }))
     .sort((a, b) => b.percentage - a.percentage)
 
-  // US state attribution
-  const stateCounts = {}
-  for (const m of allMemories) {
-    if (m.location?.state && (m.location?.country === 'United States' || m.location?.country === 'USA')) {
-      stateCounts[m.location.state] = (stateCounts[m.location.state] || 0) + 1
-    }
-  }
+  // State counts — seed birth state at 1
+  const stateCounts   = {}
+  const birthStateNorm = birthInfo?.state && birthCountry === 'United States' ? birthInfo.state : null
+  if (birthStateNorm) stateCounts[birthStateNorm] = 1
 
-  // Seed with birth state if USA
-  if (birthInfo?.state && (birthInfo?.country === 'United States' || birthInfo?.country === 'USA')) {
-    if (!stateCounts[birthInfo.state]) stateCounts[birthInfo.state] = 0
+  for (const m of allMemories) {
+    if (!m.location?.state) continue
+    if (normalizeCountry(m.location.country) !== 'United States') continue
+    stateCounts[m.location.state] = (stateCounts[m.location.state] || 0) + 1
   }
 
   const stateTotal = Object.values(stateCounts).reduce((s, v) => s + v, 0) || 1
   const stateStats = Object.entries(stateCounts)
-    .filter(([, count]) => count > 0)
     .map(([state, count]) => ({ state, percentage: Math.round((count / stateTotal) * 100) }))
     .sort((a, b) => b.percentage - a.percentage)
     .slice(0, 12)
 
-  // Fun facts
   const uniqueCountries = countryStats.length
-  const uniqueStates = Object.keys(stateCounts).filter(s => stateCounts[s] > 0).length
+  const uniqueStates    = Object.keys(stateCounts).length
   const yearsDocumented = new Set(allYears).size
+  const bornIn          = birthStateNorm
+    ? (birthInfo.city ? `${birthInfo.city}, ${birthStateNorm}` : birthStateNorm)
+    : (birthCountry ?? null)
 
-  return { countryStats, stateStats, uniqueCountries, uniqueStates, totalMemories: allMemories.length, yearsDocumented, totalYears, birthYear }
+  return { countryStats, stateStats, uniqueCountries, uniqueStates, totalMemories: allMemories.length, yearsDocumented, totalYears, birthYear, bornIn }
 }
 
 const CustomTooltip = ({ active, payload }) => {
@@ -84,7 +77,7 @@ const CustomTooltip = ({ active, payload }) => {
 
 export default function Stats() {
   const stats = useMemo(computeStats, [])
-  const { countryStats, stateStats, uniqueCountries, uniqueStates, totalMemories, yearsDocumented, totalYears, birthYear } = stats
+  const { countryStats, stateStats, uniqueCountries, uniqueStates, totalMemories, yearsDocumented, totalYears, birthYear, bornIn } = stats
 
   const noData = totalMemories === 0 && !loadBirthInfo()
 
@@ -169,6 +162,7 @@ export default function Stats() {
                   { label: 'Memories logged',           value: totalMemories },
                   { label: 'Years documented',          value: yearsDocumented || '—' },
                   { label: 'Years of life',             value: totalYears },
+                  ...(bornIn ? [{ label: 'Born in', value: bornIn }] : []),
                 ].map(({ label, value }) => (
                   <div key={label} style={{ background: 'rgba(201,151,58,0.06)', border: '1px solid #4a2c1a', padding: '20px 16px', textAlign: 'center' }}>
                     <div style={{ fontFamily: "'Special Elite', cursive", color: '#c9973a', fontSize: '2rem', lineHeight: 1, marginBottom: '6px' }}>

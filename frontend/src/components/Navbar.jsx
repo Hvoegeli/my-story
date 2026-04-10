@@ -8,7 +8,7 @@ const links = [
   { to: '/family-tree', label: 'Family Tree' },
 ]
 
-export default function Navbar() {
+export default function Navbar({ onLogout }) {
   return (
     <nav className="fixed top-0 left-0 right-0 z-50 flex items-center justify-between px-8 py-3"
       style={{ background: 'rgba(26,15,10,0.95)', borderBottom: '1px solid #4a2c1a' }}>
@@ -35,6 +35,7 @@ export default function Navbar() {
         ))}
       </div>
       <button
+        onClick={onLogout}
         style={{
           fontFamily: "'Crimson Text', serif",
           background: 'transparent',

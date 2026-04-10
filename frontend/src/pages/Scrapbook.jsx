@@ -6,12 +6,29 @@ import AddMemoryModal from '../components/AddMemoryModal'
 import SocialConnectModal from '../components/SocialConnectModal'
 import { sampleMemories } from '../data/sampleData'
 import { loadMemoriesFromStorage, saveMemoriesToStorage } from '../utils/storage'
+import { compareDates, parseDateString } from '../utils/dates'
 
-// Split memories into pairs for left/right pages
-function chunkPairs(arr) {
+function extractYear(dateStr) {
+  const ts = parseDateString(dateStr)
+  return ts ? new Date(ts).getFullYear() : null
+}
+
+// Sort chronologically, chunk into pairs, build yearIndex (year → flip-book page #)
+// Pages: 0=cover, 1-2=year index spread, 3+=content pairs
+function buildPageData(memories) {
+  const sorted = [...memories].sort((a, b) => compareDates(a.date, b.date))
   const pairs = []
-  for (let i = 0; i < arr.length; i += 2) pairs.push(arr.slice(i, i + 2))
-  return pairs
+  for (let i = 0; i < sorted.length; i += 2) pairs.push(sorted.slice(i, i + 2))
+
+  const yearIndex = {}
+  sorted.forEach((mem, i) => {
+    const yr = extractYear(mem.date)
+    if (yr != null && !(yr in yearIndex)) {
+      yearIndex[yr] = Math.floor(i / 2) * 2 + 3 // +1 cover +2 index pages
+    }
+  })
+
+  return { pairs, yearIndex }
 }
 
 function BookPage({ memories, pageNum, side, onEdit }) {
@@ -70,6 +87,37 @@ function BookPage({ memories, pageNum, side, onEdit }) {
   )
 }
 
+function YearIndexPage({ yearIndex, onYearClick, side }) {
+  const years = Object.keys(yearIndex).map(Number).sort((a, b) => a - b)
+  return (
+    <div style={{
+      width: '100%', height: '100%',
+      background: side === 'left'
+        ? 'linear-gradient(to right, #e8dfc8, #f5f0e8)'
+        : 'linear-gradient(to left, #e8dfc8, #f5f0e8)',
+      padding: '32px 24px', position: 'relative',
+      fontFamily: "'Crimson Text', serif",
+    }}>
+      <div style={{ borderBottom: '1px solid #c9b89a', marginBottom: '16px', paddingBottom: '8px', textAlign: 'center' }}>
+        <span style={{ fontFamily: "'Playfair Display', serif", fontStyle: 'italic', color: '#6b4c3b', fontSize: '0.9rem' }}>
+          Year Index
+        </span>
+      </div>
+      <div style={{ display: 'flex', flexWrap: 'wrap', gap: '8px 16px' }}>
+        {years.map(yr => (
+          <button key={yr} onClick={() => onYearClick(yr)} style={{
+            background: 'none', border: 'none', cursor: 'pointer',
+            fontFamily: "'Crimson Text', serif", fontSize: '1rem',
+            color: '#8b3a2a', textDecoration: 'underline', padding: 0,
+          }}>
+            {yr}
+          </button>
+        ))}
+      </div>
+    </div>
+  )
+}
+
 function CoverPage({ front }) {
   return (
     <div style={{
@@ -115,8 +163,14 @@ export default function Scrapbook() {
   const [editingMemory, setEditingMemory] = useState(null)   // memory being edited
   const [flipBlocked, setFlipBlocked] = useState(false)      // block page turns during edit
   const bookRef = useRef()
-  const pairs = chunkPairs(memories)
-  const totalPages = pairs.length + 2
+  const { pairs, yearIndex } = buildPageData(memories)
+  const totalPages = pairs.length + 4 // cover + 2 index pages + back cover
+
+  const jumpToYear  = (year) => {
+    const pg = yearIndex[year]
+    if (pg != null) bookRef.current?.pageFlip()?.flip(pg)
+  }
+  const jumpToIndex = () => bookRef.current?.pageFlip()?.flip(1)
 
   // ── Block / unblock page turns ─────────────────────────────────────────────
   const blockFlip = () => setFlipBlocked(true)
@@ -219,6 +273,9 @@ export default function Scrapbook() {
             maxHeight={700}
             drawShadow={true}
             flippingTime={700}
+            clickEventForward={false}
+            showPagedFlipBtn={false}
+            swipeDistance={0}
             className="book"
             onFlip={e => setCurrentPage(e.data)}
             startPage={0}
@@ -226,10 +283,14 @@ export default function Scrapbook() {
             startZIndex={20}
             autoSize={true}
             maxShadowOpacity={0.5}
-            disableFlipByClick={flipBlocked}
+            disableFlipByClick={true}
           >
             {/* Front cover */}
             <div><CoverPage front={true} /></div>
+
+            {/* Year Index spread */}
+            <div><YearIndexPage yearIndex={yearIndex} onYearClick={jumpToYear} side="left" /></div>
+            <div><YearIndexPage yearIndex={yearIndex} onYearClick={jumpToYear} side="right" /></div>
 
             {/* Content pages */}
             {pairs.flatMap((pair, i) => [
@@ -248,6 +309,9 @@ export default function Scrapbook() {
 
         {/* Navigation controls — fleur-de-lis */}
         <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '28px', marginTop: '28px' }}>
+          <button onClick={jumpToIndex} style={{ ...fleurBtnStyle, fontSize: '0.75rem', padding: '6px 12px' }}>
+            ↑ Year Index
+          </button>
           <button
             onClick={() => bookRef.current?.pageFlip()?.flipPrev()}
             style={fleurBtnStyle}
