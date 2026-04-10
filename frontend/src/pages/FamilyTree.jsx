@@ -1,427 +1,455 @@
-import { useState, useMemo, useEffect } from 'react'
-import { motion, AnimatePresence } from 'framer-motion'
+import { useState, useMemo, useEffect, useRef, useCallback } from 'react'
+import { AnimatePresence, motion } from 'framer-motion'
 import PersonProfilePanel from '../components/PersonProfilePanel'
 import ParchmentOverlay from '../components/ParchmentOverlay'
 
-// ─── Layout constants ─────────────────────────────────────────────────────────
-const NW = 130   // node width
-const NH = 72    // node height
-const HG = 36    // horizontal gap between nodes
-const VG = 96    // vertical gap between rows
-const PAD = 60   // canvas padding
+// ── Constants ─────────────────────────────────────────────────────────────────
+const USER_R   = 68    // user center radius
+const R_STEP   = 150   // ring height per generation
+const FAN_L    = Math.PI * 0.02
+const FAN_R    = Math.PI * 0.98
+const TREE_KEY = 'my-story-family-tree'
+const TREE_VER = 'voegeli-v3'
+const uid      = () => `p${Date.now()}${Math.random().toString(36).slice(2,6)}`
 
-// ─── Unique ID ────────────────────────────────────────────────────────────────
-const uid = () => `p${Date.now()}${Math.random().toString(36).slice(2, 6)}`
+// Slice fill [0=paternal branch, 1=maternal branch] by generation depth index
+const BASE_FILL = [
+  ['#3e1c08','#301408'], ['#2b1305','#220f06'],
+  ['#1e0d04','#180b04'], ['#150903','#110703'], ['#0e0602','#0b0502'],
+]
+const HOV_FILL = [
+  ['#724020','#5c3218'], ['#502a14','#3e2010'],
+  ['#3a1e0c','#2e160a'], ['#2a1608','#201006'], ['#1e1006','#180c06'],
+]
+const GENDER_COL = { m:'#3a6090', f:'#904060', u:'#605040' }
 
-// ─── Initial state ────────────────────────────────────────────────────────────
-const INIT_PEOPLE = {
-  user: { id: 'user', name: '', birthYear: '', deathYear: '', birthPlace: '', note: '', isUser: true },
+// ── Voegeli seed data ─────────────────────────────────────────────────────────
+const VOEGELI_PEOPLE = {
+  user:        {id:'user',        name:'Harrison Voegeli',         gender:'m', birthYear:'1989', deathYear:'',    birthPlace:'Northampton, MS',                note:'',isUser:true},
+  dad:         {id:'dad',         name:'Nicholas Voegeli',          gender:'m', birthYear:'',    deathYear:'',    birthPlace:'',                               note:''},
+  mom:         {id:'mom',         name:'Ana Maria Tolentino',       gender:'f', birthYear:'',    deathYear:'',    birthPlace:'',                               note:''},
+  mgf:         {id:'mgf',         name:'Mario Tolentino',           gender:'m', birthYear:'',    deathYear:'',    birthPlace:'',                               note:''},
+  mgm:         {id:'mgm',         name:'Mary Finn',                 gender:'f', birthYear:'',    deathYear:'',    birthPlace:'',                               note:''},
+  pgf:         {id:'pgf',         name:'Kenneth Henry Voegeli',     gender:'m', birthYear:'1939',deathYear:'',    birthPlace:'Milwaukee, WI',                  note:'Born 09/03/1939'},
+  pgm:         {id:'pgm',         name:'Sue Harrison',              gender:'f', birthYear:'',    deathYear:'',    birthPlace:'',                               note:''},
+  doris:       {id:'doris',       name:'Doris Ann Voegeli',         gender:'f', birthYear:'1938',deathYear:'',    birthPlace:'Milwaukee, WI',                  note:'Married Michael Senglaub 1958. Children: Jill, Joseph, Julia, Jeffrey, James.'},
+  janet:       {id:'janet',       name:'Janet Theresa Voegeli',     gender:'f', birthYear:'1944',deathYear:'',    birthPlace:'Milwaukee, WI',                  note:''},
+  mark_v:      {id:'mark_v',      name:'Mark Wendelin Voegeli',     gender:'m', birthYear:'1947',deathYear:'',    birthPlace:'Milwaukee, WI',                  note:'Married Marsha Eichoff. Children: Mark and Matthew.'},
+  ggf:         {id:'ggf',         name:'Wendelin Leo Voegeli',      gender:'m', birthYear:'1914',deathYear:'',    birthPlace:'Colwich, KS',                    note:'Born 04/17/1914. Married Cecilia Rose Bogacz 11/18/1936.'},
+  ggm:         {id:'ggm',         name:'Cecilia Rose Bogacz',       gender:'f', birthYear:'1918',deathYear:'',    birthPlace:'Omaha, NE',                      note:'Born 07/07/1918'},
+  agnes:       {id:'agnes',       name:'Agnes Catherine Voegeli',   gender:'f', birthYear:'1909',deathYear:'2009',birthPlace:'Colwich, KS',                    note:''},
+  leo_v:       {id:'leo_v',       name:'Leo Adam Voegeli',          gender:'m', birthYear:'',    deathYear:'',    birthPlace:'Colwich, KS',                    note:'Married Marie Meyer. Children: Janice, Judith, Romald, Robert, Richard, Mary Ann, Randall.'},
+  josephine:   {id:'josephine',   name:'Josephine C. Voegeli',      gender:'f', birthYear:'1915',deathYear:'',    birthPlace:'Colwich, KS',                    note:'Married Aloysius Schauf. Children: Frederick, Martha, William, Jerome, Donald, Cetus, Joseph, Paul.'},
+  maryann_v:   {id:'maryann_v',   name:'Mary Ann Voegeli',          gender:'f', birthYear:'1917',deathYear:'',    birthPlace:'Colwich, KS',                    note:''},
+  dorothy_v:   {id:'dorothy_v',   name:'Dorothy Marie Voegeli',     gender:'f', birthYear:'1919',deathYear:'',    birthPlace:'Colwich, KS',                    note:'Married Urban Eck. Children: John, Joan, Dennis, Carl, Gregory, Theresa, Doris, Urban, Christina.'},
+  bernadine:   {id:'bernadine',   name:'Bernadine E. Voegeli',      gender:'f', birthYear:'1921',deathYear:'',    birthPlace:'Colwich, KS',                    note:''},
+  john_jr:     {id:'john_jr',     name:'John Voegeli Jr.',           gender:'m', birthYear:'1923',deathYear:'',    birthPlace:'Colwich, KS',                    note:'Married Elizabeth Palsmeir. Children: Constance, Michael, Mary, Patricia, Kathleen, Daniel, John, Timothy, Thomas, Philip, Margaret.'},
+  wilfred:     {id:'wilfred',     name:'Wilfred Voegeli',            gender:'m', birthYear:'1925',deathYear:'',    birthPlace:'Colwich, KS',                    note:'Married Alice Majerus. Children: James, Lois, George, Mary, Nadine, Theodore, Rose, Rita.'},
+  francis_v:   {id:'francis_v',   name:'Francis Voegeli',            gender:'m', birthYear:'1928',deathYear:'',    birthPlace:'Colwich, KS',                    note:'Married Marieda Schmidt. Children: Diane, Charles, Gerard, Kathryn, Stephen, Caroline, Gilbert, Joseph, Elizabeth.'},
+  creighton:   {id:'creighton',   name:'Creighton Bogacz',           gender:'m', birthYear:'1906',deathYear:'1963',birthPlace:'Omaha, NE',                      note:'Married Theresa Schlinger. No children.'},
+  theodore_b:  {id:'theodore_b',  name:'Theodore Bogacz',            gender:'m', birthYear:'1909',deathYear:'1950',birthPlace:'Omaha, NE',                      note:''},
+  elizabeth_b: {id:'elizabeth_b', name:'Elizabeth Bogacz',           gender:'f', birthYear:'1911',deathYear:'1930',birthPlace:'Omaha, NE',                      note:''},
+  margaret_b:  {id:'margaret_b',  name:'Margaret Bogacz',            gender:'f', birthYear:'1913',deathYear:'2003',birthPlace:'Omaha, NE',                      note:'Married Adrian Jaworski. Children: Marjorie, Janice, Adrian.'},
+  dorothy_b:   {id:'dorothy_b',   name:'Dorothy Bogacz',             gender:'f', birthYear:'1916',deathYear:'1992',birthPlace:'Omaha, NE',                      note:'Married Joseph Hogya. Children: Theodore, Jeremiah, Lawrence, Diane.'},
+  bernice_b:   {id:'bernice_b',   name:'Bernice Bogacz',             gender:'f', birthYear:'1921',deathYear:'2000',birthPlace:'Omaha, NE',                      note:'Married Frank Popelka. Children: Sandra, James, Patricia.'},
+  catherine_b: {id:'catherine_b', name:'Catherine Bogacz',           gender:'f', birthYear:'1924',deathYear:'',    birthPlace:'Omaha, NE',                      note:'Married Charles Weiss. 11 children.'},
+  gggf_v:      {id:'gggf_v',      name:'John Joseph Voegeli Sr.',    gender:'m', birthYear:'1885',deathYear:'',    birthPlace:'St. Marks, KS',                  note:'Born 12/22/1885'},
+  gggm_v:      {id:'gggm_v',      name:'Elizabeth K. Spexarth',      gender:'f', birthYear:'1885',deathYear:'',    birthPlace:'St. Marks, KS',                  note:'Born 04/04/1885'},
+  gggf_b:      {id:'gggf_b',      name:'George Bogacz',              gender:'m', birthYear:'1881',deathYear:'1940',birthPlace:'Omaha, NE',                      note:''},
+  gggm_b:      {id:'gggm_b',      name:'Anna Elizabeth Armatis',     gender:'f', birthYear:'1885',deathYear:'1985',birthPlace:'Omaha, NE',                      note:''},
+  ggggf_v:     {id:'ggggf_v',     name:'Joseph Voegeli Sr.',          gender:'m', birthYear:'1847',deathYear:'1903',birthPlace:'Bootzheim, Alsace, Germany',     note:''},
+  ggggm_v:     {id:'ggggm_v',     name:'Caroline Schmitt',            gender:'f', birthYear:'1847',deathYear:'1903',birthPlace:'Bootzheim, Alsace, Germany',     note:''},
+  ggggf_s:     {id:'ggggf_s',     name:'Adam Spexarth',               gender:'m', birthYear:'1847',deathYear:'1936',birthPlace:'Westphalia, Germany',            note:''},
+  ggggm_s:     {id:'ggggm_s',     name:'Katherine Holtkamp',          gender:'f', birthYear:'1858',deathYear:'1940',birthPlace:'St. Paul, Iowa',                 note:''},
+  ggggf_bg:    {id:'ggggf_bg',    name:'George Bogacz Sr.',           gender:'m', birthYear:'1849',deathYear:'',    birthPlace:'Galicia, Poland',                note:''},
+  ggggm_bg:    {id:'ggggm_bg',    name:'Sophie Sroka',                gender:'f', birthYear:'1860',deathYear:'1951',birthPlace:'Galicia, Poland',                note:''},
+  ggggf_a:     {id:'ggggf_a',     name:'Jacob Armatis',               gender:'m', birthYear:'1850',deathYear:'1913',birthPlace:'Austria',                       note:''},
+  ggggm_a:     {id:'ggggm_a',     name:'Sophia Cich',                 gender:'f', birthYear:'1854',deathYear:'1928',birthPlace:'Austria',                       note:''},
 }
-const INIT_RELS = {
-  user: { parents: [], children: [], spouses: [], exSpouses: [] },
+
+const VOEGELI_RELS = {
+  user:        {parents:['dad','mom'],           children:[],                                                                                                                spouses:[],          exSpouses:[]},
+  dad:         {parents:['pgf','pgm'],            children:['user'],                                                                                                          spouses:['mom'],     exSpouses:[]},
+  mom:         {parents:['mgf','mgm'],           children:['user'],                                                                                                          spouses:['dad'],     exSpouses:[]},
+  mgf:         {parents:[],                      children:['mom'],                                                                                                           spouses:['mgm'],     exSpouses:[]},
+  mgm:         {parents:[],                      children:['mom'],                                                                                                           spouses:['mgf'],     exSpouses:[]},
+  pgf:         {parents:['ggf','ggm'],           children:['dad'],                                                                                                           spouses:['pgm'],     exSpouses:[]},
+  pgm:         {parents:[],                      children:['dad'],                                                                                                           spouses:['pgf'],     exSpouses:[]},
+  doris:       {parents:['ggf','ggm'],           children:[],                                                                                                                spouses:[],          exSpouses:[]},
+  janet:       {parents:['ggf','ggm'],           children:[],                                                                                                                spouses:[],          exSpouses:[]},
+  mark_v:      {parents:['ggf','ggm'],           children:[],                                                                                                                spouses:[],          exSpouses:[]},
+  ggf:         {parents:['gggf_v','gggm_v'],    children:['pgf','doris','janet','mark_v'],                                                                                  spouses:['ggm'],     exSpouses:[]},
+  ggm:         {parents:['gggf_b','gggm_b'],    children:['pgf','doris','janet','mark_v'],                                                                                  spouses:['ggf'],     exSpouses:[]},
+  agnes:       {parents:['gggf_v','gggm_v'],    children:[],                                                                                                                spouses:[],          exSpouses:[]},
+  leo_v:       {parents:['gggf_v','gggm_v'],    children:[],                                                                                                                spouses:[],          exSpouses:[]},
+  josephine:   {parents:['gggf_v','gggm_v'],    children:[],                                                                                                                spouses:[],          exSpouses:[]},
+  maryann_v:   {parents:['gggf_v','gggm_v'],    children:[],                                                                                                                spouses:[],          exSpouses:[]},
+  dorothy_v:   {parents:['gggf_v','gggm_v'],    children:[],                                                                                                                spouses:[],          exSpouses:[]},
+  bernadine:   {parents:['gggf_v','gggm_v'],    children:[],                                                                                                                spouses:[],          exSpouses:[]},
+  john_jr:     {parents:['gggf_v','gggm_v'],    children:[],                                                                                                                spouses:[],          exSpouses:[]},
+  wilfred:     {parents:['gggf_v','gggm_v'],    children:[],                                                                                                                spouses:[],          exSpouses:[]},
+  francis_v:   {parents:['gggf_v','gggm_v'],    children:[],                                                                                                                spouses:[],          exSpouses:[]},
+  creighton:   {parents:['gggf_b','gggm_b'],    children:[],                                                                                                                spouses:[],          exSpouses:[]},
+  theodore_b:  {parents:['gggf_b','gggm_b'],    children:[],                                                                                                                spouses:[],          exSpouses:[]},
+  elizabeth_b: {parents:['gggf_b','gggm_b'],    children:[],                                                                                                                spouses:[],          exSpouses:[]},
+  margaret_b:  {parents:['gggf_b','gggm_b'],    children:[],                                                                                                                spouses:[],          exSpouses:[]},
+  dorothy_b:   {parents:['gggf_b','gggm_b'],    children:[],                                                                                                                spouses:[],          exSpouses:[]},
+  bernice_b:   {parents:['gggf_b','gggm_b'],    children:[],                                                                                                                spouses:[],          exSpouses:[]},
+  catherine_b: {parents:['gggf_b','gggm_b'],    children:[],                                                                                                                spouses:[],          exSpouses:[]},
+  gggf_v:      {parents:['ggggf_v','ggggm_v'],  children:['ggf','agnes','leo_v','josephine','maryann_v','dorothy_v','bernadine','john_jr','wilfred','francis_v'],            spouses:['gggm_v'],  exSpouses:[]},
+  gggm_v:      {parents:['ggggf_s','ggggm_s'],  children:['ggf','agnes','leo_v','josephine','maryann_v','dorothy_v','bernadine','john_jr','wilfred','francis_v'],            spouses:['gggf_v'],  exSpouses:[]},
+  gggf_b:      {parents:['ggggf_bg','ggggm_bg'],children:['ggm','creighton','theodore_b','elizabeth_b','margaret_b','dorothy_b','bernice_b','catherine_b'],                  spouses:['gggm_b'],  exSpouses:[]},
+  gggm_b:      {parents:['ggggf_a','ggggm_a'],  children:['ggm','creighton','theodore_b','elizabeth_b','margaret_b','dorothy_b','bernice_b','catherine_b'],                  spouses:['gggf_b'],  exSpouses:[]},
+  ggggf_v:     {parents:[],                      children:['gggf_v'],                                                                                                        spouses:['ggggm_v'], exSpouses:[]},
+  ggggm_v:     {parents:[],                      children:['gggf_v'],                                                                                                        spouses:['ggggf_v'], exSpouses:[]},
+  ggggf_s:     {parents:[],                      children:['gggm_v'],                                                                                                        spouses:['ggggm_s'], exSpouses:[]},
+  ggggm_s:     {parents:[],                      children:['gggm_v'],                                                                                                        spouses:['ggggf_s'], exSpouses:[]},
+  ggggf_bg:    {parents:[],                      children:['gggf_b'],                                                                                                        spouses:['ggggm_bg'],exSpouses:[]},
+  ggggm_bg:    {parents:[],                      children:['gggf_b'],                                                                                                        spouses:['ggggf_bg'],exSpouses:[]},
+  ggggf_a:     {parents:[],                      children:['gggm_b'],                                                                                                        spouses:['ggggm_a'], exSpouses:[]},
+  ggggm_a:     {parents:[],                      children:['gggm_b'],                                                                                                        spouses:['ggggf_a'], exSpouses:[]},
 }
 
-// ─── Layout engine ────────────────────────────────────────────────────────────
+// ── Persistence ───────────────────────────────────────────────────────────────
+function loadTree() {
+  try {
+    const s = localStorage.getItem(TREE_KEY)
+    if (s) { const p = JSON.parse(s); if (p._version === TREE_VER) return p }
+  } catch {}
+  return {people:VOEGELI_PEOPLE, rels:VOEGELI_RELS, profiles:{}, _version:TREE_VER}
+}
 
-function calcGens(rels) {
-  const gens = { user: 0 }
+// ── Fan layout — binary slot system ──────────────────────────────────────────
+function computeFanLayout(rels) {
+  // BFS from user following parents only; assign binary slot to each ancestor
+  const slots = {user:{gen:0, slot:0}}
   const q = ['user']
-  const seen = new Set(['user'])
   while (q.length) {
     const id = q.shift()
-    const r = rels[id] || {}
-    const g = gens[id]
-    for (const p of r.parents  || []) { if (!seen.has(p)) { seen.add(p); gens[p] = g - 1; q.push(p) } }
-    for (const c of r.children || []) { if (!seen.has(c)) { seen.add(c); gens[c] = g + 1; q.push(c) } }
-    for (const s of r.spouses  || []) { if (!seen.has(s)) { seen.add(s); gens[s] = g;     q.push(s) } }
-  }
-  return gens
-}
-
-// Sort one generation so spouses stay adjacent and nodes anchor near their relatives.
-// Gen -1 special case: user's father goes RIGHT of center, mother LEFT of center
-// so father's side branches right, mother's side branches left.
-function sortRow(ids, g, rels, positions) {
-  if (ids.length <= 1) return ids
-
-  let sorted
-  if (g === 0) {
-    const userSpouses = (rels['user']?.spouses || []).filter(s => ids.includes(s))
-    const rest = ids.filter(i => i !== 'user' && !userSpouses.includes(i))
-    sorted = ['user', ...userSpouses, ...rest]
-  } else if (g === -1) {
-    // Parents of user: father right, mother left — keeps lines clean
-    const userParents = (rels['user']?.parents || []).filter(id => ids.includes(id))
-    const others = ids.filter(i => !userParents.includes(i))
-    const father = userParents.find(id => {
-      const r = rels[id] || {}
-      // Identify father by rel type stored on person or by order added
-      return !r._isMother
-    })
-    const mother = userParents.find(id => id !== father)
-    const ordered = []
-    if (mother) ordered.push(mother)
-    others.filter(o => {
-      // mother's ex-spouses go left
-      const r = rels[o] || {}
-      return r.spouses?.includes(mother) || r.exSpouses?.includes(mother)
-    }).forEach(o => ordered.unshift(o))
-    if (father) ordered.push(father)
-    others.filter(o => {
-      const r = rels[o] || {}
-      return r.spouses?.includes(father) || r.exSpouses?.includes(father)
-    }).forEach(o => ordered.push(o))
-    // remaining
-    others.filter(o => !ordered.includes(o)).forEach(o => ordered.push(o))
-    sorted = ordered.length === ids.length ? ordered : [...ids]
-  } else {
-    sorted = [...ids].sort((a, b) => {
-      const anchor = (id) => {
-        const r = rels[id] || {}
-        const linked = g < 0 ? r.children : r.parents
-        const xs = linked.map(x => positions[x]?.cx).filter(Boolean)
-        return xs.length ? xs.reduce((s, v) => s + v, 0) / xs.length : 1e9
-      }
-      return anchor(a) - anchor(b)
+    const {gen, slot} = slots[id]
+    ;(rels[id]?.parents || []).forEach((pid, i) => {
+      if (pid && !slots[pid]) { slots[pid] = {gen:gen-1, slot:slot*2+i}; q.push(pid) }
     })
   }
 
-  // Pull current spouses immediately adjacent
-  const result = [...sorted]
-  for (let i = 0; i < result.length; i++) {
-    const spouses = (rels[result[i]]?.spouses || []).filter(s => result.includes(s))
-    for (const sid of spouses) {
-      const si = result.indexOf(sid)
-      if (si !== i + 1 && si > i) {
-        result.splice(si, 1)
-        result.splice(i + 1, 0, sid)
-      }
+  const maxDepth = Object.values(slots).reduce((m,s) => Math.max(m,-s.gen), 0)
+  const maxR = USER_R + maxDepth * R_STEP
+  const W = Math.max(960, maxR * 2 + 200)
+  const H = Math.max(700, maxR + 200)
+  const cx = W / 2
+  const cy = H - 100
+
+  const geom = {}
+  for (const [id, {gen, slot}] of Object.entries(slots)) {
+    if (gen === 0) {
+      geom[id] = {r1:0, r2:USER_R, a1:FAN_L, a2:FAN_R, midA:Math.PI/2, midR:USER_R*0.6, gen:0, slot:0, branch:0, aW:FAN_R-FAN_L}
+      continue
     }
-  }
-  return result
-}
-
-function computeLayout(rels) {
-  const gens = calcGens(rels)
-
-  const byGen = {}
-  for (const [id, g] of Object.entries(gens)) {
-    if (!byGen[g]) byGen[g] = []
-    byGen[g].push(id)
-  }
-
-  const genNums = Object.keys(byGen).map(Number).sort((a, b) => a - b)
-  const minGen  = genNums[0]  ?? 0
-  const maxGen  = genNums[genNums.length - 1] ?? 0
-
-  const maxRow  = Math.max(...Object.values(byGen).map(r => r.length), 1)
-  const canvasW = Math.max(820, maxRow * (NW + HG) + PAD * 2)
-  const canvasH = genNums.length * (NH + VG) + PAD * 2
-
-  const positions = {}
-
-  // Two passes so descendants can anchor on parents and ancestors on children
-  for (let pass = 0; pass < 2; pass++) {
-    for (const g of genNums) {
-      const ordered = sortRow(byGen[g], g, rels, positions)
-      const rowW    = ordered.length * (NW + HG) - HG
-      const startX  = (canvasW - rowW) / 2
-      const rowIdx  = genNums.indexOf(g)
-      const y       = PAD + rowIdx * (NH + VG)
-
-      ordered.forEach((id, i) => {
-        positions[id] = {
-          x:  startX + i * (NW + HG),
-          y,
-          cx: startX + i * (NW + HG) + NW / 2,
-          cy: y + NH / 2,
-        }
-      })
-    }
+    const absG  = -gen
+    const total = Math.pow(2, absG)
+    const aW    = (FAN_R - FAN_L) / total
+    const a1    = FAN_L + slot * aW
+    const a2    = a1 + aW
+    const midA  = (a1 + a2) / 2
+    const r1    = USER_R + (absG - 1) * R_STEP
+    const r2    = USER_R + absG * R_STEP
+    const midR  = (r1 + r2) / 2
+    // Which top-level branch (0=paternal/dad, 1=maternal/mom)?
+    const branch = Math.floor(slot / Math.pow(2, absG - 1))
+    geom[id] = {r1, r2, a1, a2, midA, midR, gen, slot, branch, aW}
   }
 
-  return { positions, gens, byGen, genNums, minGen, maxGen, canvasW, canvasH }
+  return {geom, maxDepth, W, H, cx, cy}
 }
 
-// ─── Tree backgrounds ─────────────────────────────────────────────────────────
-
-function OakBg({ canvasW, canvasH, ancestorH, descendantH }) {
-  const cx = canvasW / 2
-  const trunkTop    = ancestorH
-  const trunkBottom = canvasH - descendantH
-  const trunkH      = trunkBottom - trunkTop
-  const crownCy     = ancestorH / 2
-  const crownRx     = Math.min(canvasW * 0.42, 360)
-  const crownRy     = Math.max(ancestorH * 0.52, 80)
-  const rootsTop    = trunkBottom
-
-  return (
-    <g opacity="0.7">
-      {/* Crown clusters */}
-      <ellipse cx={cx}          cy={crownCy}         rx={crownRx}      ry={crownRy}      fill="#1a3d10"/>
-      <ellipse cx={cx - crownRx * 0.42} cy={crownCy + crownRy * 0.18} rx={crownRx * 0.52} ry={crownRy * 0.7} fill="#1e4814"/>
-      <ellipse cx={cx + crownRx * 0.42} cy={crownCy + crownRy * 0.18} rx={crownRx * 0.52} ry={crownRy * 0.7} fill="#1e4814"/>
-      <ellipse cx={cx}          cy={crownCy - crownRy * 0.25} rx={crownRx * 0.62} ry={crownRy * 0.55} fill="#265a1a"/>
-      <ellipse cx={cx - crownRx * 0.55} cy={crownCy - crownRy * 0.05} rx={crownRx * 0.38} ry={crownRy * 0.48} fill="#234f18"/>
-      <ellipse cx={cx + crownRx * 0.55} cy={crownCy - crownRy * 0.05} rx={crownRx * 0.38} ry={crownRy * 0.48} fill="#234f18"/>
-      <ellipse cx={cx}          cy={crownCy - crownRy * 0.38} rx={crownRx * 0.4}  ry={crownRy * 0.36} fill="#2d6920" opacity="0.7"/>
-
-      {/* Trunk */}
-      <rect x={cx - 42} y={trunkTop} width={84} height={trunkH} fill="#3d1f06" rx="3"/>
-      <line x1={cx - 20} y1={trunkTop + 10} x2={cx - 22} y2={trunkBottom - 10} stroke="#2c1208" strokeWidth="2.5" opacity="0.45"/>
-      <line x1={cx + 12} y1={trunkTop + 10} x2={cx + 10} y2={trunkBottom - 10} stroke="#2c1208" strokeWidth="2" opacity="0.35"/>
-
-      {/* Surface roots */}
-      <path d={`M ${cx - 30} ${rootsTop + 10} C ${cx - 90} ${rootsTop + 30} ${cx - 180} ${rootsTop + 35} ${cx - 320} ${rootsTop + 45}`}
-        stroke="#3d1f06" strokeWidth="12" fill="none" strokeLinecap="round"/>
-      <path d={`M ${cx + 30} ${rootsTop + 10} C ${cx + 90} ${rootsTop + 30} ${cx + 180} ${rootsTop + 35} ${cx + 320} ${rootsTop + 45}`}
-        stroke="#3d1f06" strokeWidth="12" fill="none" strokeLinecap="round"/>
-      <path d={`M ${cx - 20} ${rootsTop + 18} C ${cx - 80} ${rootsTop + 55} ${cx - 200} ${rootsTop + 70} ${cx - 370} ${rootsTop + 88}`}
-        stroke="#3d1f06" strokeWidth="7" fill="none" strokeLinecap="round"/>
-      <path d={`M ${cx + 20} ${rootsTop + 18} C ${cx + 80} ${rootsTop + 55} ${cx + 200} ${rootsTop + 70} ${cx + 370} ${rootsTop + 88}`}
-        stroke="#3d1f06" strokeWidth="7" fill="none" strokeLinecap="round"/>
-      <path d={`M ${cx - 18} ${rootsTop + 26} C ${cx - 60} ${rootsTop + 80} ${cx - 160} ${rootsTop + 110} ${cx - 310} ${rootsTop + 140}`}
-        stroke="#3d1f06" strokeWidth="5" fill="none" strokeLinecap="round"/>
-      <path d={`M ${cx + 18} ${rootsTop + 26} C ${cx + 60} ${rootsTop + 80} ${cx + 160} ${rootsTop + 110} ${cx + 310} ${rootsTop + 140}`}
-        stroke="#3d1f06" strokeWidth="5" fill="none" strokeLinecap="round"/>
-    </g>
-  )
+// ── SVG wedge path ────────────────────────────────────────────────────────────
+function wedgePath(cx, cy, r1, r2, a1, a2) {
+  const c = Math.cos, s = Math.sin
+  const ox1=cx-r2*c(a1), oy1=cy-r2*s(a1)
+  const ox2=cx-r2*c(a2), oy2=cy-r2*s(a2)
+  const ix1=cx-r1*c(a1), iy1=cy-r1*s(a1)
+  const ix2=cx-r1*c(a2), iy2=cy-r1*s(a2)
+  const lg = (a2-a1) > Math.PI ? 1 : 0
+  if (r1 < 1) {
+    return `M ${cx} ${cy} L ${ox1} ${oy1} A ${r2} ${r2} 0 ${lg} 0 ${ox2} ${oy2} Z`
+  }
+  return `M ${ix1} ${iy1} L ${ox1} ${oy1} A ${r2} ${r2} 0 ${lg} 0 ${ox2} ${oy2} L ${ix2} ${iy2} A ${r1} ${r1} 0 ${lg} 1 ${ix1} ${iy1} Z`
 }
 
-function SequoiaBg({ canvasW, canvasH, ancestorH, descendantH }) {
-  const cx = canvasW / 2
-  const trunkTop    = ancestorH
-  const trunkBottom = canvasH - descendantH
-  const crownW      = Math.min(canvasW * 0.28, 240)
-  const rootsTop    = trunkBottom
-
-  return (
-    <g opacity="0.7">
-      {/* Layered triangular crown */}
-      {[0, 1, 2, 3].map(i => {
-        const w = crownW * (0.55 + i * 0.18)
-        const topY = PAD + i * (ancestorH / 5)
-        const botY = topY + ancestorH * 0.32
-        return (
-          <polygon key={i}
-            points={`${cx},${topY} ${cx - w},${botY} ${cx + w},${botY}`}
-            fill={`hsl(120, 42%, ${17 + i * 3}%)`} opacity="0.92"
-          />
-        )
-      })}
-      <polygon points={`${cx},${PAD * 0.6} ${cx - crownW * 0.3},${ancestorH * 0.35} ${cx + crownW * 0.3},${ancestorH * 0.35}`}
-        fill="#3d8c2c" opacity="0.45"/>
-
-      {/* Wide trunk */}
-      <rect x={cx - 54} y={trunkTop} width={108} height={trunkBottom - trunkTop} fill="#5c2d0e" rx="3"/>
-      <line x1={cx - 24} y1={trunkTop + 10} x2={cx - 26} y2={trunkBottom - 10} stroke="#3d1f06" strokeWidth="3" opacity="0.4"/>
-      <line x1={cx + 16} y1={trunkTop + 10} x2={cx + 14} y2={trunkBottom - 10} stroke="#3d1f06" strokeWidth="2.5" opacity="0.35"/>
-
-      {/* Shallow wide roots */}
-      {[-1, 1].map(dir => [14, 9, 5].map((w, i) => (
-        <path key={`${dir}-${i}`}
-          d={`M ${cx + dir * 40} ${rootsTop + 8 + i * 10} C ${cx + dir * 120} ${rootsTop + 28 + i * 18} ${cx + dir * 260} ${rootsTop + 38 + i * 24} ${cx + dir * (380 + i * 30)} ${rootsTop + 55 + i * 40}`}
-          stroke="#5c2d0e" strokeWidth={w} fill="none" strokeLinecap="round"
-        />
-      )))}
-    </g>
-  )
+// ── Siblings helper ───────────────────────────────────────────────────────────
+function getSiblings(id, rels, people) {
+  const s = new Set()
+  for (const pid of rels[id]?.parents || [])
+    for (const cid of rels[pid]?.children || [])
+      if (cid !== id) s.add(cid)
+  return [...s].map(sid => people[sid]).filter(Boolean)
 }
 
-// ─── Connection lines ─────────────────────────────────────────────────────────
+// ── Fan background rings ──────────────────────────────────────────────────────
+const GEN_LABELS = ['Parents','Grandparents','Great-Grandparents',
+  '2× Great-Grandparents','3× Great-Grandparents']
 
-function Lines({ rels, positions }) {
-  const lines = []
-  const drawnSpouses = new Set()
+function FanBackground({cx, cy, maxDepth}) {
+  const els = []
+  const maxR = USER_R + maxDepth * R_STEP
 
-  for (const [id, r] of Object.entries(rels)) {
-    const from = positions[id]
-    if (!from) continue
+  // Baseline
+  els.push(<line key="base" x1={cx-maxR-10} y1={cy} x2={cx+maxR+10} y2={cy}
+    stroke="#3a1808" strokeWidth="1.5" opacity="0.8"/>)
 
-    // Parent → child arcs
-    for (const cid of r.children || []) {
-      const to = positions[cid]
-      if (!to) continue
-      const my = (from.cy + to.cy) / 2
-      lines.push(
-        <path key={`ch-${id}-${cid}`}
-          d={`M ${from.cx} ${from.cy + NH / 2} C ${from.cx} ${my} ${to.cx} ${my} ${to.cx} ${to.cy - NH / 2}`}
-          stroke="#c9973a" strokeWidth="1.5" fill="none" opacity="0.5"
-        />
-      )
-    }
-
-    // Current spouse connector — thick gold bar with ♥
-    for (const sid of r.spouses || []) {
-      const key = [id, sid].sort().join('-')
-      if (drawnSpouses.has(key)) continue
-      drawnSpouses.add(key)
-      const to = positions[sid]
-      if (!to) continue
-      const midX = (from.cx + to.cx) / 2
-      const y    = from.cy
-      // Horizontal bar slightly above node center
-      const barY = y - NH / 2 - 8
-      lines.push(
-        <g key={`sp-${key}`}>
-          <line x1={from.cx} y1={barY} x2={to.cx} y2={barY}
-            stroke="#c9973a" strokeWidth="2" opacity="0.6"/>
-          <line x1={from.cx} y1={barY} x2={from.cx} y2={y - NH / 2}
-            stroke="#c9973a" strokeWidth="1.5" opacity="0.5"/>
-          <line x1={to.cx} y1={barY} x2={to.cx} y2={y - NH / 2}
-            stroke="#c9973a" strokeWidth="1.5" opacity="0.5"/>
-          <text x={midX} y={barY} textAnchor="middle" dominantBaseline="middle"
-            fill="#c9973a" fontSize="11" opacity="0.85">♥</text>
-        </g>
-      )
-    }
-
-    // Ex-spouse connector — gray dashed with ✕
-    for (const sid of r.exSpouses || []) {
-      const key = `ex-${[id, sid].sort().join('-')}`
-      if (drawnSpouses.has(key)) continue
-      drawnSpouses.add(key)
-      const to = positions[sid]
-      if (!to) continue
-      const midX = (from.cx + to.cx) / 2
-      const barY = from.cy - NH / 2 - 8
-      lines.push(
-        <g key={key}>
-          <line x1={from.cx} y1={barY} x2={to.cx} y2={barY}
-            stroke="#6b4c3b" strokeWidth="1.5" opacity="0.4" strokeDasharray="4 3"/>
-          <text x={midX} y={barY} textAnchor="middle" dominantBaseline="middle"
-            fill="#6b4c3b" fontSize="10" opacity="0.6">✕</text>
-        </g>
+  // Ring arcs and labels
+  for (let i=0; i<=maxDepth; i++) {
+    const r = USER_R + i * R_STEP
+    const x1=cx-r*Math.cos(FAN_L), y1=cy-r*Math.sin(FAN_L)
+    const x2=cx-r*Math.cos(FAN_R), y2=cy-r*Math.sin(FAN_R)
+    els.push(
+      <path key={`ring-${i}`}
+        d={`M ${x1} ${y1} A ${r} ${r} 0 0 0 ${x2} ${y2}`}
+        fill="none" stroke="#3a1808" strokeWidth="1" opacity="0.55"/>
+    )
+    if (i > 0 && i <= maxDepth) {
+      const labelR = USER_R + (i - 0.5) * R_STEP
+      const label  = GEN_LABELS[i-1] || `${i-1}× Great-Grandparents`
+      els.push(
+        <text key={`lbl-${i}`}
+          x={cx} y={cy - labelR}
+          textAnchor="middle" dominantBaseline="central"
+          fill="#2e1206" fontSize="9" fontFamily="'Crimson Text', serif"
+          fontStyle="italic" style={{pointerEvents:'none'}}>
+          {label}
+        </text>
       )
     }
   }
-
-  return <g>{lines}</g>
+  return <g>{els}</g>
 }
 
-// ─── Node card ────────────────────────────────────────────────────────────────
+// ── Single fan slice ──────────────────────────────────────────────────────────
+function FanSlice({id, person, g, cx, cy, scale, onNodeClick, isDragging}) {
+  const [hov, setHov] = useState(false)
+  const {r1, r2, a1, a2, midA, midR, gen, branch, aW} = g
+  const isUser = gen === 0
+  const absG   = Math.abs(gen)
 
-function NodeCard({ id, person, pos, isUser, onEdit, onAdd, onProfile }) {
-  const [hover, setHover] = useState(false)
+  // Fill
+  let fill
+  if (isUser)         fill = hov ? '#9a6010' : '#5a3008'
+  else {
+    const di   = Math.min(absG-1, BASE_FILL.length-1)
+    const bi   = branch % 2
+    fill = hov ? HOV_FILL[di][bi] : BASE_FILL[di][bi]
+  }
+
+  // Apparent dimensions in screen pixels
+  const arcPx = midR * aW * scale
+  const radPx = R_STEP * scale
+
+  // Text/dot mode
+  let mode = 'full'
+  if (!isUser) {
+    if      (arcPx < 15 || radPx < 14) mode = 'dot'
+    else if (arcPx < 30 || radPx < 22) mode = 'initial'
+    else if (arcPx < 55 || radPx < 30) mode = 'short'
+  }
+
+  const name  = person?.name || ''
+  const parts = name.split(' ')
+
+  let line1 = '', line2 = ''
+  if (isUser) {
+    line1 = name
+    line2 = person?.birthYear ? `b. ${person.birthYear}` : ''
+  } else if (mode === 'initial') {
+    line1 = parts[0]?.charAt(0) || '?'
+  } else if (mode === 'short') {
+    line1 = parts.length > 1 ? `${parts[0].charAt(0)}. ${parts[parts.length-1]}` : name
+  } else if (mode === 'full') {
+    line1 = name
+    if (arcPx > 75 && radPx > 38) {
+      const b = person?.birthYear ? `b.${person.birthYear}` : ''
+      const d = person?.deathYear ? `d.${person.deathYear}` : ''
+      line2 = [b,d].filter(Boolean).join(' ')
+    }
+  }
+
+  // Text position and rotation
+  const tx     = cx - midR * Math.cos(midA)
+  const ty     = cy - midR * Math.sin(midA)
+  const rotDeg = 90 - midA * 180 / Math.PI
+
+  // Font sizes that scale with available arc space
+  const fs1 = isUser ? 12 : Math.min(10, Math.max(6, arcPx * 0.14))
+  const fs2 = Math.min(8,  Math.max(5,  arcPx * 0.10))
+
+  const path = wedgePath(cx, cy, r1, r2, a1, a2)
 
   return (
-    <foreignObject x={pos.x} y={pos.y} width={NW} height={NH + 30} overflow="visible">
-      <div
-        onMouseEnter={() => setHover(true)}
-        onMouseLeave={() => setHover(false)}
-        style={{
-          width: NW,
-          height: NH,
-          background: isUser ? '#5a1e12' : '#2c1810',
-          border: `1.5px solid ${isUser ? '#c9973a' : '#6b4c3b'}`,
-          borderRadius: '3px',
-          cursor: 'pointer',
-          position: 'relative',
-          boxShadow: hover ? '0 4px 20px rgba(0,0,0,0.6)' : '0 2px 8px rgba(0,0,0,0.4)',
-          transition: 'box-shadow 0.2s, border-color 0.2s',
-          display: 'flex',
-          flexDirection: 'column',
-          justifyContent: 'center',
-          padding: '8px 10px',
-        }}
-        onClick={() => onEdit(id, person)}
-      >
-        <div style={{ fontFamily: "'Special Elite', cursive", color: isUser ? '#f5f0e8' : '#c9973a', fontSize: '0.78rem', letterSpacing: '0.04em', lineHeight: 1.2, marginBottom: '2px', overflow: 'hidden', whiteSpace: 'nowrap', textOverflow: 'ellipsis' }}>
-          {person.name || (isUser ? 'You' : '—')}
-        </div>
-        {(person.birthYear || person.deathYear) && (
-          <div style={{ fontFamily: "'Crimson Text', serif", color: '#9c7a5a', fontSize: '0.68rem', lineHeight: 1.2 }}>
-            {person.birthYear || '?'}{person.deathYear ? ` — ${person.deathYear}` : ''}
-          </div>
-        )}
-        {person.birthPlace && (
-          <div style={{ fontFamily: "'Crimson Text', serif", color: '#6b4c3b', fontSize: '0.63rem', overflow: 'hidden', whiteSpace: 'nowrap', textOverflow: 'ellipsis' }}>
-            {person.birthPlace}
-          </div>
-        )}
-        {person.isAdopted && (
-          <div style={{ fontFamily: "'Crimson Text', serif", color: '#9c7a5a', fontSize: '0.6rem', fontStyle: 'italic' }}>adopted</div>
-        )}
-        {/* Stories / profile button */}
-        <button
-          onClick={e => { e.stopPropagation(); onProfile(id) }}
-          style={{
-            marginTop: '5px', padding: '2px 7px',
-            background: 'transparent', border: '1px solid #4a2c1a',
-            color: '#c9973a', fontFamily: "'Crimson Text', serif",
-            fontSize: '0.6rem', cursor: 'pointer', borderRadius: '2px',
-            letterSpacing: '0.04em', alignSelf: 'flex-start',
-          }}
+    <g
+      onClick={() => { if (!isDragging.current) onNodeClick(id) }}
+      onMouseEnter={() => setHov(true)}
+      onMouseLeave={() => setHov(false)}
+      style={{cursor:'pointer'}}
+    >
+      {/* Wedge shape */}
+      <path d={path}
+        fill={mode === 'dot' ? GENDER_COL[person?.gender||'u'] : fill}
+        stroke="#2a1005" strokeWidth="0.6"
+        opacity={mode === 'dot' ? 0.55 : 1}
+      />
+      {/* Hover highlight ring */}
+      {hov && !isUser && (
+        <path d={path} fill="none" stroke="#c9973a" strokeWidth="1.2" opacity="0.5"/>
+      )}
+
+      {/* Text */}
+      {mode !== 'dot' && line1 && (
+        <text
+          x={tx} y={ty}
+          textAnchor="middle" dominantBaseline="central"
+          transform={`rotate(${rotDeg},${tx},${ty})`}
+          style={{pointerEvents:'none', userSelect:'none'}}
         >
-          📖 Stories & Photos
-        </button>
-
-        {/* Gold + badge — add relative */}
-        {hover && (
-          <button
-            onClick={e => { e.stopPropagation(); onAdd(id) }}
-            style={{
-              position: 'absolute', top: -10, right: -10,
-              width: 24, height: 24, borderRadius: '50%',
-              background: '#c9973a', border: '2px solid #f5f0e8',
-              color: '#1a0f0a', fontSize: '1.1rem', lineHeight: '20px',
-              textAlign: 'center', cursor: 'pointer', fontWeight: 'bold',
-              display: 'flex', alignItems: 'center', justifyContent: 'center',
-              boxShadow: '0 2px 8px rgba(0,0,0,0.6)',
-            }}
+          <tspan
+            fill={isUser ? '#f5e0a0' : '#c9973a'}
+            fontSize={fs1}
+            fontFamily={isUser ? "'Special Elite', cursive" : "'Crimson Text', serif"}
+            fontWeight={isUser ? 'normal' : '600'}
           >
-            +
-          </button>
-        )}
-      </div>
-    </foreignObject>
+            {line1}
+          </tspan>
+          {line2 && (
+            <tspan x={tx} dy={`${fs1 * 1.35}px`} fill="#9c7a5a" fontSize={fs2}
+              fontFamily="'Crimson Text', serif">
+              {line2}
+            </tspan>
+          )}
+        </text>
+      )}
+    </g>
   )
 }
 
-// ─── Add relative panel ───────────────────────────────────────────────────────
-
+// ── Info / sibling panel ──────────────────────────────────────────────────────
 const REL_OPTIONS = [
-  { type: 'father',   label: 'Father',              dir: 'ancestor',   icon: '↑' },
-  { type: 'mother',   label: 'Mother',              dir: 'ancestor',   icon: '↑' },
-  { type: 'sibling',  label: 'Sibling',             dir: 'same',       icon: '↔' },
-  { type: 'spouse',   label: 'Spouse / Partner',    dir: 'same',       icon: '♥' },
-  { type: 'child',    label: 'Child',               dir: 'descendant', icon: '↓' },
-  { type: 'adoptee',  label: 'Adoptee (Adopted Child)', dir: 'descendant', icon: '↓♡' },
+  {type:'father', label:'Father',  icon:'↑'}, {type:'mother',  label:'Mother',  icon:'↑'},
+  {type:'spouse', label:'Spouse',  icon:'♥'}, {type:'child',   label:'Child',   icon:'↓'},
 ]
 
-function AddRelPanel({ personName, onAdd, onClose }) {
+function InfoPanel({id, person, siblings, onClose, onEdit, onProfile, onAddRelative}) {
+  const [addingRel, setAddingRel] = useState(false)
+  const dates = [
+    person.birthYear && `Born ${person.birthYear}`,
+    person.deathYear && `Died ${person.deathYear}`,
+  ].filter(Boolean).join(' · ')
+
   return (
     <AnimatePresence>
-      <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}
+      <motion.div key="bd" initial={{opacity:0}} animate={{opacity:1}} exit={{opacity:0}}
         onClick={onClose}
-        style={{ position: 'fixed', inset: 0, zIndex: 200, background: 'rgba(10,5,3,0.75)', display: 'flex', alignItems: 'center', justifyContent: 'center', padding: '24px' }}>
-        <motion.div initial={{ opacity: 0, y: 24, scale: 0.96 }} animate={{ opacity: 1, y: 0, scale: 1 }}
-          onClick={e => e.stopPropagation()}
-          style={{ background: '#f5f0e8', width: '100%', maxWidth: '340px', border: '1px solid #c9b89a', boxShadow: '0 20px 60px rgba(0,0,0,0.7)' }}>
-          <div style={{ background: '#2c1810', padding: '14px 18px', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-            <span style={{ fontFamily: "'Special Elite', cursive", color: '#f5f0e8', fontSize: '1rem' }}>
-              Add relative to {personName || 'this person'}
-            </span>
-            <button onClick={onClose} style={{ background: 'none', border: 'none', color: '#9c7a5a', fontSize: '1.3rem', cursor: 'pointer' }}>×</button>
+        style={{position:'fixed',inset:0,zIndex:200,background:'rgba(8,4,2,0.75)',
+          display:'flex',alignItems:'center',justifyContent:'center'}}>
+        <motion.div key="pn" initial={{opacity:0,y:20,scale:0.97}} animate={{opacity:1,y:0,scale:1}}
+          onClick={e=>e.stopPropagation()}
+          style={{background:'#f5f0e8',maxWidth:420,width:'90%',border:'1px solid #c9b89a',
+            borderRadius:3,boxShadow:'0 24px 64px rgba(0,0,0,0.8)',overflow:'hidden'}}>
+          {/* Header */}
+          <div style={{background:'#2c1810',padding:'16px 18px',display:'flex',
+            justifyContent:'space-between',alignItems:'flex-start'}}>
+            <div>
+              <div style={{fontFamily:"'Special Elite', cursive",color:'#f5f0e8',
+                fontSize:'1.05rem',lineHeight:1.35}}>{person.name||'—'}</div>
+              {dates && <div style={{fontFamily:"'Crimson Text', serif",color:'#9c7a5a',
+                fontSize:'0.88rem',marginTop:2}}>{dates}</div>}
+              {person.birthPlace && <div style={{fontFamily:"'Crimson Text', serif",color:'#7a5a4a',
+                fontSize:'0.82rem',marginTop:1}}>{person.birthPlace}</div>}
+            </div>
+            <button onClick={onClose} style={{background:'none',border:'none',color:'#9c7a5a',
+              fontSize:'1.5rem',cursor:'pointer',lineHeight:1,paddingLeft:12,flexShrink:0}}>×</button>
           </div>
-          <div style={{ padding: '16px' }}>
-            {[
-              { group: 'Ancestors', items: REL_OPTIONS.filter(r => r.dir === 'ancestor') },
-              { group: 'Same Generation', items: REL_OPTIONS.filter(r => r.dir === 'same') },
-              { group: 'Descendants', items: REL_OPTIONS.filter(r => r.dir === 'descendant') },
-            ].map(({ group, items }) => (
-              <div key={group} style={{ marginBottom: '12px' }}>
-                <p style={{ fontFamily: "'Crimson Text', serif", color: '#9c7a5a', fontSize: '0.72rem', letterSpacing: '0.08em', textTransform: 'uppercase', margin: '0 0 6px' }}>{group}</p>
-                <div style={{ display: 'flex', flexWrap: 'wrap', gap: '7px' }}>
-                  {items.map(r => (
-                    <button key={r.type} onClick={() => onAdd(r.type)}
-                      style={{ background: '#2c1810', color: '#e8dfc8', border: '1px solid #4a2c1a', padding: '7px 14px', fontFamily: "'Crimson Text', serif", fontSize: '0.9rem', cursor: 'pointer', borderRadius: '2px', display: 'flex', gap: '6px', alignItems: 'center' }}>
-                      <span style={{ color: '#c9973a', fontSize: '0.85rem' }}>{r.icon}</span> {r.label}
-                    </button>
+
+          {/* Body */}
+          <div style={{padding:'16px 18px',maxHeight:'55vh',overflowY:'auto'}}>
+            {person.note && (
+              <p style={{fontFamily:"'Crimson Text', serif",color:'#4a2c1a',fontSize:'0.9rem',
+                lineHeight:1.55,margin:'0 0 14px'}}>{person.note}</p>
+            )}
+            {siblings.length > 0 && (
+              <div>
+                <p style={{fontFamily:"'Crimson Text', serif",color:'#8b3a2a',fontSize:'0.74rem',
+                  letterSpacing:'0.08em',textTransform:'uppercase',fontWeight:600,margin:'0 0 9px'}}>
+                  Siblings ({siblings.length})
+                </p>
+                <div style={{display:'flex',flexDirection:'column',gap:6}}>
+                  {siblings.map(sib=>(
+                    <div key={sib.id} style={{background:'#faf7f2',border:'1px solid #d4c4a8',
+                      borderRadius:2,padding:'7px 10px'}}>
+                      <div style={{fontFamily:"'Special Elite', cursive",color:'#2c1810',
+                        fontSize:'0.82rem',lineHeight:1.3}}>{sib.name}</div>
+                      {(sib.birthYear||sib.deathYear) && (
+                        <div style={{fontFamily:"'Crimson Text', serif",color:'#8b6a4a',fontSize:'0.76rem',marginTop:2}}>
+                          {sib.birthYear&&`b. ${sib.birthYear}`}{sib.deathYear&&` · d. ${sib.deathYear}`}
+                        </div>
+                      )}
+                      {sib.note && (
+                        <div style={{fontFamily:"'Crimson Text', serif",color:'#6b4c3b',
+                          fontSize:'0.73rem',marginTop:3,lineHeight:1.4}}>{sib.note}</div>
+                      )}
+                    </div>
                   ))}
                 </div>
               </div>
-            ))}
+            )}
+            {!person.note && siblings.length===0 && (
+              <p style={{fontFamily:"'Crimson Text', serif",color:'#8b6a4a',fontSize:'0.9rem'}}>
+                No additional information recorded.
+              </p>
+            )}
+          </div>
+
+          {/* Add relative */}
+          {addingRel ? (
+            <div style={{padding:'12px 18px',borderTop:'1px solid #d4c4a8',background:'#faf7f2'}}>
+              <p style={{fontFamily:"'Crimson Text', serif",color:'#6b4c3b',fontSize:'0.78rem',
+                letterSpacing:'0.07em',textTransform:'uppercase',margin:'0 0 8px'}}>
+                Add relative to {person.name?.split(' ')[0]}
+              </p>
+              <div style={{display:'flex',gap:6,flexWrap:'wrap',marginBottom:8}}>
+                {REL_OPTIONS.map(r=>(
+                  <button key={r.type} onClick={()=>{onAddRelative(id,r.type);onClose()}}
+                    style={{background:'#2c1810',color:'#e8dfc8',border:'1px solid #4a2c1a',
+                      padding:'6px 12px',fontFamily:"'Crimson Text', serif",fontSize:'0.85rem',
+                      cursor:'pointer',borderRadius:2}}>
+                    {r.icon} {r.label}
+                  </button>
+                ))}
+              </div>
+              <button onClick={()=>setAddingRel(false)}
+                style={{background:'transparent',border:'none',color:'#9c7a5a',
+                  fontFamily:"'Crimson Text', serif",fontSize:'0.8rem',cursor:'pointer'}}>
+                Cancel
+              </button>
+            </div>
+          ) : null}
+
+          {/* Footer */}
+          <div style={{padding:'12px 18px',borderTop:'1px solid #d4c4a8',display:'flex',gap:8}}>
+            <button onClick={()=>{onProfile(id);onClose()}}
+              style={{flex:1,background:'transparent',border:'1px solid #c9b89a',color:'#4a2c1a',
+                padding:'9px 0',fontFamily:"'Crimson Text', serif",fontSize:'0.88rem',cursor:'pointer',borderRadius:2}}>
+              Stories
+            </button>
+            <button onClick={()=>setAddingRel(a=>!a)}
+              style={{flex:1,background:'transparent',border:'1px solid #c9b89a',color:'#4a6c3a',
+                padding:'9px 0',fontFamily:"'Crimson Text', serif",fontSize:'0.88rem',cursor:'pointer',borderRadius:2}}>
+              + Add Relative
+            </button>
+            {id!=='user' && (
+              <button onClick={()=>{onEdit(id,person);onClose()}}
+                style={{flex:1,background:'#2c1810',border:'none',color:'#e8dfc8',padding:'9px 0',
+                  fontFamily:"'Crimson Text', serif",fontSize:'0.88rem',cursor:'pointer',borderRadius:2}}>
+                Edit
+              </button>
+            )}
           </div>
         </motion.div>
       </motion.div>
@@ -429,430 +457,255 @@ function AddRelPanel({ personName, onAdd, onClose }) {
   )
 }
 
-// ─── Edit / Add person form ───────────────────────────────────────────────────
-
-function PersonForm({ personId, person, isNew, relType, onSave, onDelete, onDivorce, spouseNames, sameGenPeople, onLinkMarried, onClose }) {
+// ── Edit person form ──────────────────────────────────────────────────────────
+function PersonForm({personId, person, isNew, relType, onSave, onDelete, onClose}) {
   const [form, setForm] = useState({
-    name: person?.name || '',
-    birthYear: person?.birthYear || '',
-    deathYear: person?.deathYear || '',
-    birthPlace: person?.birthPlace || '',
-    note: person?.note || '',
+    name:person?.name||'', birthYear:person?.birthYear||'',
+    deathYear:person?.deathYear||'', birthPlace:person?.birthPlace||'', note:person?.note||'',
   })
-  const set = (k, v) => setForm(f => ({ ...f, [k]: v }))
-
-  const relLabel = relType ? REL_OPTIONS.find(r => r.type === relType)?.label : null
-
+  const set = (k,v) => setForm(f=>({...f,[k]:v}))
   return (
-    <ParchmentOverlay
-      title={isNew ? `Add ${relLabel || 'Person'}` : 'Edit Person'}
-      onClose={onClose}
-      maxWidth={400}
-      zIndex={300}
-    >
-          <div>
-            {[
-              ['name', 'Full Name', 'text', 'e.g. Margaret Anne Smith'],
-              ['birthYear', 'Birth Year', 'number', 'e.g. 1942'],
-              ['deathYear', 'Year of Passing (optional)', 'number', 'e.g. 2018'],
-              ['birthPlace', 'Birthplace (optional)', 'text', 'e.g. Dublin, Ireland'],
-            ].map(([key, label, type, ph]) => (
-              <div key={key} style={{ marginBottom: '11px' }}>
-                <label style={{ display: 'block', fontFamily: "'Crimson Text', serif", color: '#6b4c3b', fontSize: '0.82rem', marginBottom: '4px' }}>{label}</label>
-                <input type={type} placeholder={ph} value={form[key]} onChange={e => set(key, e.target.value)}
-                  style={{ width: '100%', background: '#fff', border: '1px solid #c9b89a', borderRadius: '2px', padding: '7px 10px', fontFamily: "'Crimson Text', serif", fontSize: '0.92rem', color: '#2c1810', outline: 'none' }} />
-              </div>
-            ))}
-            <div style={{ marginBottom: '16px' }}>
-              <label style={{ display: 'block', fontFamily: "'Crimson Text', serif", color: '#6b4c3b', fontSize: '0.82rem', marginBottom: '4px' }}>Notes (optional)</label>
-              <textarea rows={2} value={form.note} onChange={e => set('note', e.target.value)}
-                placeholder="Anything worth remembering about this person…"
-                style={{ width: '100%', background: '#fff', border: '1px solid #c9b89a', borderRadius: '2px', padding: '7px 10px', fontFamily: "'Crimson Text', serif", fontSize: '0.92rem', color: '#2c1810', outline: 'none', resize: 'vertical' }} />
-            </div>
-            {/* Divorce section — only shown when editing someone with a spouse */}
-            {!isNew && spouseNames?.length > 0 && (
-              <div style={{ background: '#faf7f2', border: '1px solid #d4c4a8', padding: '10px 12px', marginBottom: '14px', borderRadius: '2px' }}>
-                <p style={{ fontFamily: "'Crimson Text', serif", color: '#6b4c3b', fontSize: '0.8rem', margin: '0 0 8px', letterSpacing: '0.03em' }}>
-                  Current spouse(s): <strong>{spouseNames.join(', ')}</strong>
-                </p>
-                {spouseNames.map((name, i) => (
-                  <button key={i} onClick={() => onDivorce(i)}
-                    style={{ display: 'block', width: '100%', background: 'transparent', border: '1px solid #c9b89a', color: '#8b3a2a', padding: '6px', fontFamily: "'Crimson Text', serif", fontSize: '0.82rem', cursor: 'pointer', borderRadius: '2px', marginBottom: '4px', textAlign: 'left' }}>
-                    ✕ Mark divorce from {name}
-                  </button>
-                ))}
-              </div>
-            )}
-
-            {/* Link as married — shown when there are same-gen candidates */}
-            {sameGenPeople?.length > 0 && (
-              <div style={{ background: '#faf7f2', border: '1px solid #d4c4a8', padding: '10px 12px', marginBottom: '14px', borderRadius: '2px' }}>
-                <p style={{ fontFamily: "'Crimson Text', serif", color: '#6b4c3b', fontSize: '0.8rem', margin: '0 0 8px', letterSpacing: '0.03em' }}>
-                  Link as married with:
-                </p>
-                {sameGenPeople.map(({ id, name }) => (
-                  <button key={id} onClick={() => { onLinkMarried(id); onClose() }}
-                    style={{ display: 'block', width: '100%', background: 'transparent', border: '1px solid #c9b89a', color: '#4a7c3a', padding: '6px', fontFamily: "'Crimson Text', serif", fontSize: '0.82rem', cursor: 'pointer', borderRadius: '2px', marginBottom: '4px', textAlign: 'left' }}>
-                    ♥ Link with {name || 'Unknown'}
-                  </button>
-                ))}
-              </div>
-            )}
-
-            <div style={{ display: 'flex', gap: '8px' }}>
-              {!isNew && personId !== 'user' && (
-                <button onClick={() => onDelete(personId)}
-                  style={{ background: 'transparent', border: '1px solid #c9b89a', color: '#9c7a5a', padding: '9px 12px', fontFamily: "'Crimson Text', serif", fontSize: '0.85rem', cursor: 'pointer', borderRadius: '2px' }}>
-                  Remove
-                </button>
-              )}
-              <button onClick={onClose}
-                style={{ background: 'transparent', border: '1px solid #c9b89a', color: '#6b4c3b', padding: '9px 16px', fontFamily: "'Crimson Text', serif", fontSize: '0.9rem', cursor: 'pointer', borderRadius: '2px' }}>
-                Cancel
-              </button>
-              <button onClick={() => { onSave(personId, form, isNew); onClose() }}
-                style={{ flex: 1, background: '#8b3a2a', color: '#f5f0e8', border: 'none', padding: '9px', fontFamily: "'Special Elite', cursive", fontSize: '0.95rem', letterSpacing: '0.04em', cursor: 'pointer', borderRadius: '2px' }}>
-                {isNew ? 'Add to Tree' : 'Save'}
-              </button>
-            </div>
+    <ParchmentOverlay title={isNew?'Add Person':'Edit Person'} onClose={onClose} maxWidth={400} zIndex={300}>
+      <div>
+        {[['name','Full Name','text','e.g. Margaret Anne Smith'],
+          ['birthYear','Birth Year','number','e.g. 1942'],
+          ['deathYear','Year of Passing (optional)','number','e.g. 2018'],
+          ['birthPlace','Birthplace (optional)','text','e.g. Dublin, Ireland'],
+        ].map(([k,label,type,ph])=>(
+          <div key={k} style={{marginBottom:11}}>
+            <label style={{display:'block',fontFamily:"'Crimson Text', serif",color:'#6b4c3b',
+              fontSize:'0.82rem',marginBottom:4}}>{label}</label>
+            <input type={type} placeholder={ph} value={form[k]} onChange={e=>set(k,e.target.value)}
+              style={{width:'100%',background:'#fff',border:'1px solid #c9b89a',borderRadius:2,
+                padding:'7px 10px',fontFamily:"'Crimson Text', serif",fontSize:'0.92rem',
+                color:'#2c1810',outline:'none',boxSizing:'border-box'}}/>
           </div>
+        ))}
+        <div style={{marginBottom:16}}>
+          <label style={{display:'block',fontFamily:"'Crimson Text', serif",color:'#6b4c3b',
+            fontSize:'0.82rem',marginBottom:4}}>Notes (optional)</label>
+          <textarea rows={2} value={form.note} onChange={e=>set('note',e.target.value)}
+            placeholder="Anything worth remembering…"
+            style={{width:'100%',background:'#fff',border:'1px solid #c9b89a',borderRadius:2,
+              padding:'7px 10px',fontFamily:"'Crimson Text', serif",fontSize:'0.92rem',
+              color:'#2c1810',outline:'none',resize:'vertical',boxSizing:'border-box'}}/>
+        </div>
+        <div style={{display:'flex',gap:8}}>
+          {!isNew && personId!=='user' && (
+            <button onClick={()=>onDelete(personId)}
+              style={{background:'transparent',border:'1px solid #c9b89a',color:'#9c7a5a',
+                padding:'9px 12px',fontFamily:"'Crimson Text', serif",fontSize:'0.85rem',
+                cursor:'pointer',borderRadius:2}}>Remove</button>
+          )}
+          <button onClick={onClose}
+            style={{background:'transparent',border:'1px solid #c9b89a',color:'#6b4c3b',
+              padding:'9px 16px',fontFamily:"'Crimson Text', serif",fontSize:'0.9rem',
+              cursor:'pointer',borderRadius:2}}>Cancel</button>
+          <button onClick={()=>{onSave(personId,form,isNew);onClose()}}
+            style={{flex:1,background:'#8b3a2a',color:'#f5f0e8',border:'none',padding:9,
+              fontFamily:"'Special Elite', cursive",fontSize:'0.95rem',letterSpacing:'0.04em',
+              cursor:'pointer',borderRadius:2}}>{isNew?'Add to Tree':'Save'}</button>
+        </div>
+      </div>
     </ParchmentOverlay>
   )
 }
 
-// ─── Main page ────────────────────────────────────────────────────────────────
-
-const TREE_KEY = 'my-story-family-tree'
-
-function loadTree() {
-  try {
-    const saved = localStorage.getItem(TREE_KEY)
-    if (saved) return JSON.parse(saved)
-  } catch {}
-  return { people: INIT_PEOPLE, rels: INIT_RELS, profiles: {} }
-}
-
+// ── Main page ─────────────────────────────────────────────────────────────────
 export default function FamilyTree() {
-  const init = useMemo(() => loadTree(), [])
-
-  const [treeStyle,    setTreeStyle]    = useState('oak')
-  const [people,       setPeople]       = useState(init.people)
-  const [rels,         setRels]         = useState(init.rels)
-  const [profiles,     setProfiles]     = useState(init.profiles || {})
-  const [addPanel,     setAddPanel]     = useState(null)
+  const init = useMemo(()=>loadTree(),[])
+  const [people,   setPeople]   = useState(init.people)
+  const [rels,     setRels]     = useState(init.rels)
+  const [profiles, setProfiles] = useState(init.profiles||{})
+  const [infoPanel,    setInfoPanel]    = useState(null)
   const [editPanel,    setEditPanel]    = useState(null)
   const [profilePanel, setProfilePanel] = useState(null)
-  const [zoom,         setZoom]         = useState(1.0)
 
-  // Persist tree to localStorage whenever it changes
-  useEffect(() => {
-    localStorage.setItem(TREE_KEY, JSON.stringify({ people, rels, profiles }))
-  }, [people, rels, profiles])
+  // Viewport
+  const [vp, setVp]       = useState({x:0,y:0,scale:1})
+  const vpRef             = useRef({x:0,y:0,scale:1})
+  vpRef.current           = vp
+  const dragRef           = useRef(null)
+  const isDragging        = useRef(false)
+  const mouseStartRef     = useRef(null)
 
-  const layout = useMemo(() => computeLayout(rels), [rels])
-  const { positions, genNums, minGen, maxGen, canvasW, canvasH } = layout
+  useEffect(()=>{
+    localStorage.setItem(TREE_KEY, JSON.stringify({people,rels,profiles,_version:TREE_VER}))
+  },[people,rels,profiles])
 
-  const handleFit = () => {
-    const vw = Math.max(window.innerWidth - 48, 300)
-    setZoom(Math.min(1, Math.max(0.2, vw / (canvasW || 900))))
+  const layout = useMemo(()=>computeFanLayout(rels),[rels])
+  const {geom, maxDepth, W, H, cx, cy} = layout
+
+  // Initial viewport: fit tree into screen, user node near bottom-center
+  useEffect(()=>{
+    const vpW = window.innerWidth
+    const vpH = window.innerHeight - 64
+    const s   = Math.min(1, Math.max(0.2, (vpW - 60) / W))
+    setVp({x:(vpW - W*s)/2, y:vpH - cy*s - 60, scale:s})
+  },[W,H,cx,cy])
+
+  // ── Drag / click discrimination ────────────────────────────────────────────
+  const onMouseDown = useCallback((e)=>{
+    isDragging.current  = false
+    mouseStartRef.current = {x:e.clientX, y:e.clientY}
+    dragRef.current = {ox:e.clientX - vpRef.current.x, oy:e.clientY - vpRef.current.y}
+    e.preventDefault()
+  },[])
+
+  const onMouseMove = useCallback((e)=>{
+    if (!dragRef.current) return
+    const dx = e.clientX - mouseStartRef.current.x
+    const dy = e.clientY - mouseStartRef.current.y
+    if (Math.sqrt(dx*dx+dy*dy) > 4) isDragging.current = true
+    setVp(v=>({...v, x:e.clientX-dragRef.current.ox, y:e.clientY-dragRef.current.oy}))
+  },[])
+
+  const onMouseUp = useCallback(()=>{ dragRef.current = null },[])
+
+  // ── Zoom ──────────────────────────────────────────────────────────────────
+  const zoomBy = (factor) => setVp(v=>{
+    const ns  = Math.max(0.1, Math.min(4, v.scale*factor))
+    const pcx = window.innerWidth/2
+    const pcy = (window.innerHeight-64)/2
+    return {scale:ns, x:pcx-(pcx-v.x)*(ns/v.scale), y:pcy-(pcy-v.y)*(ns/v.scale)}
+  })
+
+  const fitTree = () => {
+    const vpW=window.innerWidth, vpH=window.innerHeight-64
+    const s=Math.min(1,Math.max(0.1,(vpW-60)/W))
+    setVp({x:(vpW-W*s)/2, y:vpH-cy*s-60, scale:s})
   }
 
-  // Heights for the tree background
-  const rowHeight = NH + VG
-  const ancestorRows = Math.max(0, -minGen)
-  const descendantRows = Math.max(0, maxGen)
-  const ancestorH  = ancestorRows  * rowHeight + PAD
-  const descendantH = descendantRows * rowHeight + PAD
-  const Bg = treeStyle === 'oak' ? OakBg : SequoiaBg
+  // ── CRUD ──────────────────────────────────────────────────────────────────
+  const handleAddRelative = (fromId, relType) => {
+    const newId  = uid()
+    const newPerson = {id:newId, name:'', gender:'u', birthYear:'', deathYear:'', birthPlace:'', note:''}
+    const fromRel   = rels[fromId] || {parents:[],children:[],spouses:[],exSpouses:[]}
+    let updFrom = {...fromRel}
+    let updNew  = {parents:[],children:[],spouses:[],exSpouses:[]}
+    const extra = {}
 
-  // ── Add a new relative ──────────────────────────────────────────────────────
-  const handleAddType = (fromId, relType) => {
-    setAddPanel(null)
-    const newId   = uid()
-    const fromRel = rels[fromId] || { parents: [], children: [], spouses: [] }
-
-    const newPerson = { id: newId, name: '', birthYear: '', deathYear: '', birthPlace: '', note: '', isUser: false }
-
-    // Build new relation entries
-    let updatedFrom   = { ...fromRel }
-    let updatedNew    = { parents: [], children: [], spouses: [], exSpouses: [] }
-    const extra       = {} // extra updates (e.g. updating grandparent's children)
-
-    if (relType === 'father' || relType === 'mother') {
-      updatedFrom = { ...updatedFrom, parents: [...updatedFrom.parents, newId] }
-      updatedNew  = { ...updatedNew, children: [fromId] }
-      // If the other parent already exists, offer to link them (done via UI separately)
-    } else if (relType === 'child' || relType === 'adoptee') {
-      updatedFrom = { ...updatedFrom, children: [...updatedFrom.children, newId] }
-      const isAdopted = relType === 'adoptee'
-      newPerson.isAdopted = isAdopted
-      // Auto-add current spouse as co-parent
+    if (relType==='father'||relType==='mother') {
+      updFrom = {...updFrom, parents:[...updFrom.parents, newId]}
+      updNew  = {...updNew,  children:[fromId]}
+      if (relType==='father') newPerson.gender='m'
+      if (relType==='mother') newPerson.gender='f'
+    } else if (relType==='spouse') {
+      updFrom = {...updFrom, spouses:[...updFrom.spouses, newId]}
+      updNew  = {...updNew,  spouses:[fromId]}
+    } else if (relType==='child') {
+      updFrom = {...updFrom, children:[...updFrom.children, newId]}
       const spouseId = fromRel.spouses?.[0]
-      const parents = spouseId ? [fromId, spouseId] : [fromId]
-      updatedNew = { ...updatedNew, parents }
-      if (spouseId && rels[spouseId]) {
-        extra[spouseId] = {
-          ...(rels[spouseId] || {}),
-          children: [...(rels[spouseId]?.children || []), newId],
-        }
-      }
-    } else if (relType === 'spouse') {
-      updatedFrom = { ...updatedFrom, spouses: [...updatedFrom.spouses, newId] }
-      updatedNew  = { ...updatedNew, spouses: [fromId] }
-    } else if (relType === 'sibling') {
-      const sharedParents = fromRel.parents
-      updatedNew = { ...updatedNew, parents: sharedParents }
-      sharedParents.forEach(pid => {
-        extra[pid] = {
-          ...(rels[pid] || { parents: [], children: [], spouses: [], exSpouses: [] }),
-          children: [...((rels[pid] || {}).children || []), newId],
-        }
-      })
+      updNew = {...updNew, parents: spouseId ? [fromId, spouseId] : [fromId]}
+      if (spouseId && rels[spouseId])
+        extra[spouseId] = {...rels[spouseId], children:[...(rels[spouseId].children||[]), newId]}
     }
 
-    setPeople(p  => ({ ...p, [newId]: newPerson }))
-    setRels(r    => ({ ...r, [fromId]: updatedFrom, [newId]: updatedNew, ...extra }))
-
-    // Open edit form for the new person immediately
-    setEditPanel({ personId: newId, person: newPerson, isNew: true, relType })
+    setPeople(p=>({...p, [newId]:newPerson}))
+    setRels(r=>({...r, [fromId]:updFrom, [newId]:updNew, ...extra}))
+    setEditPanel({personId:newId, person:newPerson, isNew:true, relType})
   }
 
-  // ── Save a person's details ────────────────────────────────────────────────
-  const handleSave = (personId, form) => {
-    setPeople(p => ({ ...p, [personId]: { ...p[personId], ...form } }))
-  }
+  const handleSave = (personId, form) =>
+    setPeople(p=>({...p,[personId]:{...p[personId],...form}}))
 
-  // ── Divorce: move spouse → exSpouse for both people ───────────────────────
-  const handleDivorce = (personId, spouseIndex) => {
-    setEditPanel(null)
-    setRels(r => {
-      const n = { ...r }
-      const personRel = { ...(n[personId] || {}), spouses: [...(n[personId]?.spouses || [])], exSpouses: [...(n[personId]?.exSpouses || [])] }
-      const spouseId  = personRel.spouses[spouseIndex]
-      if (!spouseId) return n
-
-      // Remove from spouses, add to exSpouses for both
-      personRel.spouses   = personRel.spouses.filter(s => s !== spouseId)
-      personRel.exSpouses = [...personRel.exSpouses, spouseId]
-
-      const spouseRel = { ...(n[spouseId] || {}), spouses: [...(n[spouseId]?.spouses || [])], exSpouses: [...(n[spouseId]?.exSpouses || [])] }
-      spouseRel.spouses   = spouseRel.spouses.filter(s => s !== personId)
-      spouseRel.exSpouses = [...spouseRel.exSpouses, personId]
-
-      n[personId] = personRel
-      n[spouseId] = spouseRel
-      return n
-    })
-  }
-
-  // ── Remove a person ────────────────────────────────────────────────────────
   const handleDelete = (personId) => {
     setEditPanel(null)
-    setPeople(p => { const n = { ...p }; delete n[personId]; return n })
-    setRels(r => {
-      const n = { ...r }
-      delete n[personId]
-      for (const [id, rel] of Object.entries(n)) {
-        n[id] = {
-          parents:   (rel.parents   || []).filter(x => x !== personId),
-          children:  (rel.children  || []).filter(x => x !== personId),
-          spouses:   (rel.spouses   || []).filter(x => x !== personId),
-          exSpouses: (rel.exSpouses || []).filter(x => x !== personId),
-        }
-      }
+    setPeople(p=>{const n={...p};delete n[personId];return n})
+    setRels(r=>{
+      const n={...r};delete n[personId]
+      for (const [id,rel] of Object.entries(n))
+        n[id]={parents:(rel.parents||[]).filter(x=>x!==personId),
+               children:(rel.children||[]).filter(x=>x!==personId),
+               spouses:(rel.spouses||[]).filter(x=>x!==personId),
+               exSpouses:(rel.exSpouses||[]).filter(x=>x!==personId)}
       return n
     })
   }
-
-  // ── Link two existing people as married ────────────────────────────────────
-  const handleLinkMarried = (personId, otherId) => {
-    setRels(r => {
-      const n = { ...r }
-      const aRel = { ...(n[personId] || { parents: [], children: [], spouses: [], exSpouses: [] }) }
-      const bRel = { ...(n[otherId]   || { parents: [], children: [], spouses: [], exSpouses: [] }) }
-      if (!aRel.spouses.includes(otherId)) aRel.spouses = [...aRel.spouses, otherId]
-      if (!bRel.spouses.includes(personId)) bRel.spouses = [...bRel.spouses, personId]
-      n[personId] = aRel
-      n[otherId]  = bRel
-      return n
-    })
-  }
-
-  // ── Profile updates ────────────────────────────────────────────────────────
-  const handleUpdateProfile = (personId, updated) => {
-    setProfiles(p => ({ ...p, [personId]: updated }))
-  }
-
-  // ── Derive spouse names and same-gen candidates for the edit panel ─────────
-  const editSpouseNames = editPanel
-    ? (rels[editPanel.personId]?.spouses || []).map(sid => people[sid]?.name || 'Unknown')
-    : []
-
-  const editSameGenPeople = useMemo(() => {
-    if (!editPanel) return []
-    const pid = editPanel.personId
-    const myGen = positions[pid] ? Object.entries(positions).find(([id]) => id === pid) : null
-    if (!myGen) return []
-    // Find everyone at the same generation who isn't already a spouse or ex-spouse or self
-    const myGenNum = Object.entries(layout.gens || {}).find(([id]) => id === pid)?.[1]
-    if (myGenNum === undefined) return []
-    const currentSpouses = new Set([...(rels[pid]?.spouses || []), ...(rels[pid]?.exSpouses || []), pid])
-    return Object.entries(layout.gens || {})
-      .filter(([id, g]) => g === myGenNum && !currentSpouses.has(id) && people[id]?.name)
-      .map(([id]) => ({ id, name: people[id].name }))
-  }, [editPanel, layout, rels, people, positions])
 
   return (
-    <div style={{ minHeight: '100vh', background: '#0f0705', paddingTop: '68px' }}>
+    <div style={{position:'fixed',inset:0,top:56,background:'#080402',overflow:'hidden'}}>
 
-      {/* Panels */}
-      {addPanel && (
-        <AddRelPanel
-          personName={people[addPanel.personId]?.name}
-          onAdd={type => handleAddType(addPanel.personId, type)}
-          onClose={() => setAddPanel(null)}
-        />
-      )}
-      {editPanel && (
-        <PersonForm
-          personId={editPanel.personId}
-          person={editPanel.person}
-          isNew={editPanel.isNew}
-          relType={editPanel.relType}
-          spouseNames={editSpouseNames}
-          sameGenPeople={editSameGenPeople}
-          onSave={handleSave}
-          onDelete={handleDelete}
-          onDivorce={(i) => handleDivorce(editPanel.personId, i)}
-          onLinkMarried={(otherId) => handleLinkMarried(editPanel.personId, otherId)}
-          onClose={() => setEditPanel(null)}
-        />
-      )}
-      {profilePanel && people[profilePanel] && (
-        <PersonProfilePanel
-          personId={profilePanel}
-          person={people[profilePanel]}
-          profile={profiles[profilePanel] || {}}
-          onUpdate={updated => handleUpdateProfile(profilePanel, updated)}
-          onClose={() => setProfilePanel(null)}
-        />
-      )}
+      {/* Full-screen SVG — everything inside transforms together */}
+      <svg width="100%" height="100%" style={{display:'block',cursor:dragRef.current?'grabbing':'grab'}}
+        onMouseDown={onMouseDown} onMouseMove={onMouseMove}
+        onMouseUp={onMouseUp} onMouseLeave={onMouseUp}>
 
-      {/* Header */}
-      <div style={{ textAlign: 'center', padding: '22px 24px 14px' }}>
-        <h1 style={{ fontFamily: "'Special Elite', cursive", color: '#f5f0e8', fontSize: '2rem', letterSpacing: '0.08em', marginBottom: '6px' }}>
-          Family Tree
-        </h1>
-        <p style={{ fontFamily: "'Playfair Display', serif", fontStyle: 'italic', color: '#9c7a5a', fontSize: '0.95rem', marginBottom: '18px' }}>
-          Crown &amp; branches: ancestors &nbsp;·&nbsp; Trunk: you &nbsp;·&nbsp; Roots: descendants
-        </p>
+        <g transform={`translate(${vp.x},${vp.y}) scale(${vp.scale})`}>
+          <FanBackground cx={cx} cy={cy} maxDepth={maxDepth}/>
 
-        {/* Tree style toggle */}
-        <div style={{ display: 'inline-flex', border: '1px solid #4a2c1a', borderRadius: '3px', overflow: 'hidden', marginBottom: '10px' }}>
-          {[['oak', 'Oak Tree', 'Wide & spreading'], ['sequoia', 'Sequoia', 'Tall & majestic']].map(([id, label, desc]) => (
-            <button key={id} onClick={() => setTreeStyle(id)}
-              style={{ padding: '8px 22px', background: treeStyle === id ? '#8b3a2a' : 'transparent', border: 'none', cursor: 'pointer', color: treeStyle === id ? '#f5f0e8' : '#9c7a5a', fontFamily: "'Special Elite', cursive", fontSize: '0.9rem', letterSpacing: '0.05em' }}>
-              {label}
-              <span style={{ display: 'block', fontFamily: "'Crimson Text', serif", fontStyle: 'italic', fontSize: '0.68rem', color: treeStyle === id ? '#f5f0e8cc' : '#6b4c3b', letterSpacing: 0 }}>{desc}</span>
+          {/* Slices — render background (non-hovered) first, then user on top */}
+          {Object.entries(geom)
+            .filter(([id])=>id!=='user')
+            .map(([id,g])=>(
+              <FanSlice key={id} id={id} person={people[id]||{name:id}} g={g}
+                cx={cx} cy={cy} scale={vp.scale}
+                onNodeClick={id=>setInfoPanel({id})} isDragging={isDragging}/>
+            ))}
+          {/* User center on top */}
+          {geom['user'] && (
+            <FanSlice key="user" id="user" person={people['user']} g={geom['user']}
+              cx={cx} cy={cy} scale={vp.scale}
+              onNodeClick={id=>setInfoPanel({id})} isDragging={isDragging}/>
+          )}
+        </g>
+      </svg>
+
+      {/* Zoom controls */}
+      <div style={{position:'absolute',bottom:28,right:24,display:'flex',flexDirection:'column',
+        gap:6,zIndex:10}}>
+        {[{l:'+',a:()=>zoomBy(1.2)},{l:'−',a:()=>zoomBy(0.833)},{l:'Fit',a:fitTree}]
+          .map(({l,a})=>(
+            <button key={l} onClick={a}
+              style={{width:42,height:38,background:'rgba(16,8,4,0.92)',border:'1px solid #4a2c1a',
+                color:'#c9973a',fontSize:l==='Fit'?'0.78rem':'1.3rem',fontFamily:"'Crimson Text', serif",
+                cursor:'pointer',borderRadius:3,display:'flex',alignItems:'center',
+                justifyContent:'center'}}>
+              {l}
             </button>
           ))}
-        </div>
+      </div>
 
-        {/* Zoom controls */}
-        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '8px', marginTop: '8px' }}>
-          <button onClick={() => setZoom(z => Math.max(0.2, +(z - 0.15).toFixed(2)))}
-            style={{ background: 'transparent', border: '1px solid #4a2c1a', color: '#c9b89a', width: 32, height: 32, fontSize: '1.1rem', cursor: 'pointer', borderRadius: '2px', lineHeight: 1 }}>
-            −
-          </button>
-          <button onClick={handleFit}
-            style={{ background: 'transparent', border: '1px solid #4a2c1a', color: '#c9973a', padding: '0 14px', height: 32, fontFamily: "'Crimson Text', serif", fontSize: '0.85rem', cursor: 'pointer', borderRadius: '2px', letterSpacing: '0.04em' }}>
-            Fit
-          </button>
-          <button onClick={() => setZoom(z => Math.min(2, +(z + 0.15).toFixed(2)))}
-            style={{ background: 'transparent', border: '1px solid #4a2c1a', color: '#c9b89a', width: 32, height: 32, fontSize: '1.1rem', cursor: 'pointer', borderRadius: '2px', lineHeight: 1 }}>
-            +
-          </button>
-          <span style={{ fontFamily: "'Crimson Text', serif", color: '#6b4c3b', fontSize: '0.8rem', minWidth: '38px' }}>
-            {Math.round(zoom * 100)}%
-          </span>
-        </div>
+      {/* Hint */}
+      <div style={{position:'absolute',top:12,left:16,fontFamily:"'Crimson Text', serif",
+        color:'#3a1808',fontSize:'0.75rem',fontStyle:'italic',pointerEvents:'none',lineHeight:1.7}}>
+        <span style={{color:'#c9973a',fontStyle:'normal',fontFamily:"'Special Elite', cursive",
+          fontSize:'0.9rem',display:'block',marginBottom:2}}>Family Tree</span>
+        Drag to pan · +/− to zoom · click to explore
       </div>
 
       {/* Legend */}
-      <div style={{ display: 'flex', justifyContent: 'center', gap: '20px', marginBottom: '10px', flexWrap: 'wrap' }}>
-        {[['#2d6920','Ancestors (Crown)'],['#8b3a2a','You (Trunk)'],['#3d1f06','Descendants (Roots)'],['#c9973a','+ Add relative']].map(([color, label]) => (
-          <div key={label} style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
-            <div style={{ width: 10, height: 10, borderRadius: '50%', background: color }} />
-            <span style={{ fontFamily: "'Crimson Text', serif", color: '#9c7a5a', fontSize: '0.8rem' }}>{label}</span>
+      <div style={{position:'absolute',bottom:28,left:16,display:'flex',flexDirection:'column',
+        gap:5,pointerEvents:'none'}}>
+        {[['#3a6090','Male'],['#904060','Female']].map(([c,l])=>(
+          <div key={l} style={{display:'flex',alignItems:'center',gap:7}}>
+            <div style={{width:10,height:10,borderRadius:'50%',background:c,opacity:0.7}}/>
+            <span style={{fontFamily:"'Crimson Text', serif",color:'#3a1808',fontSize:'0.73rem',
+              fontStyle:'italic'}}>{l} (far zoom)</span>
           </div>
         ))}
       </div>
 
-      {/* Scrollable tree canvas */}
-      <div style={{ overflowX: 'auto', overflowY: 'auto', paddingBottom: '48px' }}>
-        <motion.svg
-          key={treeStyle}
-          initial={{ opacity: 0 }}
-          animate={{ opacity: 1 }}
-          transition={{ duration: 0.5 }}
-          viewBox={`0 0 ${canvasW} ${canvasH}`}
-          width={Math.round(canvasW * zoom)}
-          height={Math.round(canvasH * zoom)}
-          style={{ display: 'block', margin: '0 auto' }}
-        >
-          {/* Decorative tree background */}
-          <Bg canvasW={canvasW} canvasH={canvasH} ancestorH={ancestorH} descendantH={descendantH} />
-
-          {/* Connection lines */}
-          <Lines rels={rels} positions={positions} />
-
-          {/* Generation labels */}
-          {genNums.map(g => {
-            const label =
-              g === 0 ? null :
-              g === -1 ? 'Parents' :
-              g === -2 ? 'Grandparents' :
-              g === -3 ? 'Great-Grandparents' :
-              g < -3   ? `${Math.abs(g)}× Great-Grandparents` :
-              g === 1  ? 'Children' :
-              g === 2  ? 'Grandchildren' :
-              g === 3  ? 'Great-Grandchildren' :
-                         `${g}× Great-Grandchildren`
-            if (!label) return null
-            const rowIdx = genNums.indexOf(g)
-            const y = PAD + rowIdx * (NH + VG) + NH / 2
-            return (
-              <text key={g} x={12} y={y}
-                style={{ fontFamily: "'Crimson Text', serif", fontStyle: 'italic' }}
-                fill="#4a2c1a" fontSize="11" dominantBaseline="middle">
-                {label}
-              </text>
-            )
-          })}
-
-          {/* Person nodes */}
-          {Object.entries(people).map(([id, person]) => {
-            const pos = positions[id]
-            if (!pos) return null
-            return (
-              <NodeCard
-                key={id}
-                id={id}
-                person={person}
-                pos={pos}
-                isUser={id === 'user'}
-                onEdit={(pid, p) => setEditPanel({ personId: pid, person: p, isNew: false, relType: null })}
-                onAdd={(pid) => setAddPanel({ personId: pid })}
-                onProfile={(pid) => setProfilePanel(pid)}
-              />
-            )
-          })}
-        </motion.svg>
-      </div>
-
-      <p style={{ textAlign: 'center', fontFamily: "'Crimson Text', serif", fontStyle: 'italic', color: '#3a1c0a', fontSize: '0.8rem', paddingBottom: '32px' }}>
-        Click any node to edit · Hover a node and click the gold + to add a relative
-      </p>
+      {/* Panels */}
+      {infoPanel && people[infoPanel.id] && (
+        <InfoPanel id={infoPanel.id} person={people[infoPanel.id]}
+          siblings={getSiblings(infoPanel.id, rels, people)}
+          onClose={()=>setInfoPanel(null)}
+          onEdit={(id,person)=>{setEditPanel({personId:id,person,isNew:false});setInfoPanel(null)}}
+          onProfile={id=>{setProfilePanel(id);setInfoPanel(null)}}
+          onAddRelative={handleAddRelative}/>
+      )}
+      {editPanel && (
+        <PersonForm personId={editPanel.personId} person={editPanel.person}
+          isNew={editPanel.isNew} relType={editPanel.relType}
+          onSave={handleSave} onDelete={handleDelete} onClose={()=>setEditPanel(null)}/>
+      )}
+      {profilePanel && people[profilePanel] && (
+        <PersonProfilePanel personId={profilePanel} person={people[profilePanel]}
+          profile={profiles[profilePanel]||{}}
+          onUpdate={u=>setProfiles(p=>({...p,[profilePanel]:u}))}
+          onClose={()=>setProfilePanel(null)}/>
+      )}
     </div>
   )
 }
