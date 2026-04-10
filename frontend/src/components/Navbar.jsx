@@ -3,7 +3,7 @@ import { NavLink } from 'react-router-dom'
 const links = [
   { to: '/scrapbook',   label: 'My Story' },
   { to: '/timeline',    label: 'Timeline' },
-  { to: '/map',         label: 'World Map' },
+  // { to: '/map',         label: 'World Map' },
   { to: '/stats',       label: 'Life Stats' },
   { to: '/family-tree', label: 'Family Tree' },
 ]
